@@ -2,7 +2,7 @@
 
 # tmdview web
 
-A brower tmd viewer: Renders one playable character from SK:EV on screen Built on three.js r149
+A browser tmd viewer: Renders one playable character from SK:EV on screen Built on three.js r149
 (shipped next to the page as `three.min.js`, MIT licence in `three.LICENSE`).
 
 **Run it:** open `tmdview.html` (double-click; no server needed) and press **Open GameData folder…**. Pick the
