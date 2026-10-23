@@ -1,0 +1,3014 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tmdview web</title>
+<style>
+  :root { --bg: #1e2026; --panel: #262931; --line: #353945; --text: #e4e6eb; --dim: #9aa0ad; --accent: #e0607e; --err: #ff8080; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; }
+  #side { width: 290px; flex: none; background: var(--panel); border-right: 1px solid var(--line); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+  #stage { flex: 1; position: relative; min-width: 0; }
+  #view { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  h1 { font-size: 15px; margin: 0; letter-spacing: .02em; }
+  h1 span { color: var(--dim); font-weight: 400; }
+  section { display: flex; flex-direction: column; gap: 6px; }
+  label.cap { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  button, select, input[type=range] { font: inherit; color: var(--text); }
+  button, select { background: #30343e; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: #4a5060; }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.on { background: #44344a; border-color: var(--accent); }
+  .row { display: flex; gap: 6px; align-items: center; }
+  .row > * { flex: 1; }
+  .row > .fit { flex: none; }
+  select { width: 100%; }
+  #motion { height: 220px; }
+  .check { display: flex; gap: 8px; align-items: center; }
+  .hint { color: var(--dim); font-size: 12px; }
+  #status { color: var(--dim); font-size: 12px; min-height: 2.8em; word-break: break-word; }
+  #status.err { color: var(--err); }
+  #folder { color: var(--text); font-weight: 600; }
+  .needs { display: none; }
+  body.ready .needs { display: flex; }
+  body.ready .intro { display: none; }
+  body.busy #view { opacity: .6; }
+  kbd { background: #30343e; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; font: 11px ui-monospace, monospace; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .grid3 label { display: flex; flex-direction: column; gap: 3px; color: var(--dim); font-size: 12px; }
+  .grid3 select { padding: 4px 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+  #motion { height: 180px; }
+  #frame { font: 12px ui-monospace, monospace; color: var(--dim); text-align: right; }
+  @media (max-width: 700px) { body { flex-direction: column; } #side { width: auto; max-height: 45vh; } }
+</style>
+</head>
+<body>
+<aside id="side">
+  <h1>tmdview <span>web</span></h1>
+  <section>
+    <button id="open" class="primary">Open GameData folder…</button>
+    <input id="dirinput" type="file" webkitdirectory directory multiple hidden>
+    <div class="hint intro">Pick the game's <b>GameData</b> folder (or the game folder). Files are read by this page on your computer; nothing is uploaded. <span id="pickhint"></span></div>
+    <div class="hint needs">Folder: <span id="folder"></span></div>
+  </section>
+  <section class="needs">
+    <label class="cap" for="chara">Character</label>
+    <select id="chara"></select>
+    <div class="row">
+      <button id="uniform">Uniform</button>
+      <button id="ninja">Ninja</button>
+    </div>
+  </section>
+  <section class="needs">
+    <div class="row"><label class="cap" for="motion">Motion</label><span id="mcount" class="hint fit"></span></div>
+    <select id="motion" size="10"></select>
+    <div class="row">
+      <button id="prev" class="fit">◀</button>
+      <button id="play">Pause</button>
+      <button id="next" class="fit">▶</button>
+    </div>
+    <input id="scrub" type="range" min="0" max="1" step="1" value="0">
+    <div class="row"><input id="speed" type="range" min="0.1" max="2" step="0.05" value="1"><span id="speedv" class="hint fit">1.00×</span><span id="frame" class="fit"></span></div>
+  </section>
+  <section class="needs">
+    <label class="cap" for="layer">Outfit layer</label>
+    <select id="layer">
+      <option value="NTRL">NTRL — intact</option>
+      <option value="BRK0">BRK0 — damage 1</option>
+      <option value="BRK1">BRK1 — damage 2</option>
+      <option value="BRK2">BRK2 — damage 3</option>
+      <option value="BRK3">BRK3 — damage 4</option>
+      <option value="BRKS">BRKS — transformation</option>
+    </select>
+  </section>
+  <section class="needs">
+    <label class="cap">Face</label>
+    <div class="grid3">
+      <label>Brows<select id="brow"></select></label>
+      <label>Eyes<select id="eye"></select></label>
+      <label>Mouth<select id="mouth"></select></label>
+    </div>
+    <div class="row"><span class="hint fit">Mouth open</span><input id="open" type="range" min="0" max="20" step="1" value="0"><label class="check fit"><input id="talk" type="checkbox"> Talk</label></div>
+    <div class="chips" id="overlays">
+      <label class="check"><input type="checkbox" data-k="0"> Cheeks</label>
+      <label class="check"><input type="checkbox" data-k="1"> Blush</label>
+      <label class="check"><input type="checkbox" data-k="2"> Tears</label>
+      <label class="check"><input type="checkbox" data-k="3"> &gt;&lt; eyes</label>
+      <label class="check"><input type="checkbox" data-k="4"> = = eyes</label>
+    </div>
+  </section>
+  <section class="needs">
+    <label class="check"><input id="physics" type="checkbox" checked> Physics (skirt, hair, bust)</label>
+    <label class="check"><input id="outline" type="checkbox" checked> Outlines</label>
+    <div class="row"><button id="resetphys">Reset physics</button><button id="resetcam">Reset camera</button></div>
+  </section>
+  <section>
+    <div id="status"></div>
+    <div class="hint">
+      <kbd>Left drag</kbd> orbit · <kbd>Shift</kbd>/<kbd>middle</kbd> pan · <kbd>wheel</kbd> zoom<br>
+      <kbd>Right drag</kbd> (or <kbd>Alt</kbd>+left) touch: grab the skirt, hair or bust<br>
+      <kbd>Space</kbd> play/pause · <kbd>PgUp</kbd>/<kbd>PgDn</kbd> motion · <kbd>C</kbd> costume · <kbd>L</kbd> layer · <kbd>F</kbd>/<kbd>N</kbd> expression / mouth · <kbd>T</kbd> talk · <kbd>P</kbd> physics · <kbd>R</kbd> camera
+    </div>
+  </section>
+</aside>
+<main id="stage"><canvas id="view"></canvas></main>
+<!-- three.js r149: a three.min.js next to this page is used first (offline), else the CDN copy -->
+<script src="three.min.js"></script>
+<script>window.THREE || document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"><\/script>')</script>
+<script>
+(() => {
+  // src/gamedata.js
+  var norm = (p) => p.replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase();
+  var GameData = class _GameData {
+    static fromFileList(files) {
+      const gd = new _GameData();
+      const map = /* @__PURE__ */ new Map();
+      for (const f of files) {
+        const rel = norm(f.webkitRelativePath || f.name);
+        map.set(rel, f);
+      }
+      const keys = [...map.keys()];
+      let prefix = "";
+      const probe = "fnames/e/filename.bin";
+      const hit = keys.find((k) => k.endsWith("/" + probe) || k === probe);
+      if (hit) prefix = hit.slice(0, hit.length - probe.length);
+      gd.files = /* @__PURE__ */ new Map();
+      for (const [k, f] of map) if (k.startsWith(prefix)) gd.files.set(k.slice(prefix.length), f);
+      gd.label = files[0] && (files[0].webkitRelativePath || "").split("/")[0] || "GameData";
+      gd.ok = !!hit;
+      return gd;
+    }
+    static async fromHandle(dir) {
+      const gd = new _GameData();
+      gd.root = dir;
+      gd.label = dir.name;
+      gd.dirCache = /* @__PURE__ */ new Map();
+      if (!await gd._resolve("fnames/e/filename.bin")) {
+        const sub2 = await gd._child(dir, "gamedata", true);
+        if (sub2) {
+          gd.root = sub2;
+          gd.dirCache = /* @__PURE__ */ new Map();
+        }
+      }
+      gd.ok = !!await gd._resolve("fnames/e/filename.bin");
+      return gd;
+    }
+    async _list(dir) {
+      let m = this.dirCache.get(dir);
+      if (!m) {
+        m = /* @__PURE__ */ new Map();
+        for await (const [name, h] of dir.entries()) m.set(name.toLowerCase(), h);
+        this.dirCache.set(dir, m);
+      }
+      return m;
+    }
+    async _child(dir, name, wantDir) {
+      const h = (await this._list(dir)).get(name);
+      if (!h || h.kind === "directory" !== wantDir) return null;
+      return h;
+    }
+    async _resolve(path) {
+      const parts = norm(path).split("/");
+      let dir = this.root;
+      for (let i = 0; i < parts.length - 1; i++) {
+        dir = await this._child(dir, parts[i], true);
+        if (!dir) return null;
+      }
+      return this._child(dir, parts[parts.length - 1], false);
+    }
+    async exists(path) {
+      if (this.files) return this.files.has(norm(path));
+      return !!await this._resolve(path);
+    }
+    /** ArrayBuffer or null */
+    async read(path) {
+      try {
+        let file = null;
+        if (this.files) file = this.files.get(norm(path)) || null;
+        else {
+          const h = await this._resolve(path);
+          if (h) file = await h.getFile();
+        }
+        return file ? await file.arrayBuffer() : null;
+      } catch (e) {
+        console.warn(path, e);
+        return null;
+      }
+    }
+  };
+
+  // src/util.js
+  var CRC = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = c & 1 ? c >>> 1 ^ 3988292384 : c >>> 1;
+    CRC[i] = c >>> 0;
+  }
+  function hash(name) {
+    let h = name.length >>> 0;
+    for (let i = 0; i < name.length; i++) h = (CRC[(h ^ name.charCodeAt(i)) & 255] ^ h >>> 8) >>> 0;
+    return h >>> 0;
+  }
+  function ident() {
+    const m = new Float64Array(16);
+    m[0] = m[5] = m[10] = m[15] = 1;
+    return m;
+  }
+  function mul(a, b, out) {
+    const o = out && out !== a && out !== b ? out : new Float64Array(16);
+    for (let r = 0; r < 4; r++) {
+      const a0 = a[r * 4], a1 = a[r * 4 + 1], a2 = a[r * 4 + 2], a3 = a[r * 4 + 3];
+      for (let c = 0; c < 4; c++) o[r * 4 + c] = a0 * b[c] + a1 * b[4 + c] + a2 * b[8 + c] + a3 * b[12 + c];
+    }
+    if (out && (out === a || out === b)) {
+      out.set(o);
+      return out;
+    }
+    return o;
+  }
+  function eulerXYZ(x, y, z) {
+    const cx = Math.cos(x), sx = Math.sin(x), cy = Math.cos(y), sy = Math.sin(y), cz = Math.cos(z), sz = Math.sin(z);
+    const X = ident();
+    X[5] = cx;
+    X[6] = sx;
+    X[9] = -sx;
+    X[10] = cx;
+    const Y = ident();
+    Y[0] = cy;
+    Y[2] = -sy;
+    Y[8] = sy;
+    Y[10] = cy;
+    const Z = ident();
+    Z[0] = cz;
+    Z[1] = sz;
+    Z[4] = -sz;
+    Z[5] = cz;
+    return mul(mul(X, Y), Z);
+  }
+  function composeSRT(t, r, s) {
+    const R = eulerXYZ(r[0], r[1], r[2]);
+    for (let c = 0; c < 3; c++) {
+      R[c] *= s[0];
+      R[4 + c] *= s[1];
+      R[8 + c] *= s[2];
+    }
+    R[12] = t[0];
+    R[13] = t[1];
+    R[14] = t[2];
+    return R;
+  }
+  function translation(x, y, z) {
+    const m = ident();
+    m[12] = x;
+    m[13] = y;
+    m[14] = z;
+    return m;
+  }
+  function invAffine(m) {
+    const X = [m[0], m[1], m[2]], Y = [m[4], m[5], m[6]], Z = [m[8], m[9], m[10]], O = [m[12], m[13], m[14]];
+    const cx = cross(Y, Z), cy = cross(Z, X), cz = cross(X, Y);
+    const det = dot(X, cx);
+    if (Math.abs(det) < 1e-12) return null;
+    const d = 1 / det, inv = ident();
+    inv[0] = cx[0] * d;
+    inv[1] = cy[0] * d;
+    inv[2] = cz[0] * d;
+    inv[4] = cx[1] * d;
+    inv[5] = cy[1] * d;
+    inv[6] = cz[1] * d;
+    inv[8] = cx[2] * d;
+    inv[9] = cy[2] * d;
+    inv[10] = cz[2] * d;
+    inv[12] = -dot(O, cx) * d;
+    inv[13] = -dot(O, cy) * d;
+    inv[14] = -dot(O, cz) * d;
+    return inv;
+  }
+  var dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  var cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  var add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+  var sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  var scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+  var len = (a) => Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]);
+  var row = (m, i) => [m[i * 4], m[i * 4 + 1], m[i * 4 + 2]];
+  function xform(p, m) {
+    return [
+      p[0] * m[0] + p[1] * m[4] + p[2] * m[8] + m[12],
+      p[0] * m[1] + p[1] * m[5] + p[2] * m[9] + m[13],
+      p[0] * m[2] + p[1] * m[6] + p[2] * m[10] + m[14]
+    ];
+  }
+  function rotate(v, k, a) {
+    const c = Math.cos(a), s = Math.sin(a), kv = cross(k, v), d = dot(k, v) * (1 - c);
+    return [v[0] * c + kv[0] * s + k[0] * d, v[1] * c + kv[1] * s + k[1] * d, v[2] * c + kv[2] * s + k[2] * d];
+  }
+  var clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+  function toTRS(m) {
+    const s = [0, 0, 0], R = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    for (let i = 0; i < 3; i++) {
+      s[i] = Math.hypot(m[i * 4], m[i * 4 + 1], m[i * 4 + 2]);
+      const inv = s[i] > 1e-12 ? 1 / s[i] : 0;
+      for (let j = 0; j < 3; j++) R[i][j] = m[i * 4 + j] * inv;
+    }
+    const t = [m[12], m[13], m[14]], q = [0, 0, 0, 1];
+    const tr = R[0][0] + R[1][1] + R[2][2];
+    if (tr > 0) {
+      const k = Math.sqrt(tr + 1) * 2;
+      q[3] = 0.25 * k;
+      q[0] = (R[1][2] - R[2][1]) / k;
+      q[1] = (R[2][0] - R[0][2]) / k;
+      q[2] = (R[0][1] - R[1][0]) / k;
+    } else if (R[0][0] > R[1][1] && R[0][0] > R[2][2]) {
+      const k = Math.sqrt(1 + R[0][0] - R[1][1] - R[2][2]) * 2;
+      q[3] = (R[1][2] - R[2][1]) / k;
+      q[0] = 0.25 * k;
+      q[1] = (R[1][0] + R[0][1]) / k;
+      q[2] = (R[2][0] + R[0][2]) / k;
+    } else if (R[1][1] > R[2][2]) {
+      const k = Math.sqrt(1 + R[1][1] - R[0][0] - R[2][2]) * 2;
+      q[3] = (R[2][0] - R[0][2]) / k;
+      q[0] = (R[1][0] + R[0][1]) / k;
+      q[1] = 0.25 * k;
+      q[2] = (R[2][1] + R[1][2]) / k;
+    } else {
+      const k = Math.sqrt(1 + R[2][2] - R[0][0] - R[1][1]) * 2;
+      q[3] = (R[0][1] - R[1][0]) / k;
+      q[0] = (R[2][0] + R[0][2]) / k;
+      q[1] = (R[2][1] + R[1][2]) / k;
+      q[2] = 0.25 * k;
+    }
+    return { t, q, s };
+  }
+  function fromTRS(t, q, s) {
+    const [x, y, z, w] = q;
+    const R = [
+      [1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w)],
+      [2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w)],
+      [2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)]
+    ];
+    const m = ident();
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m[i * 4 + j] = R[i][j] * s[i];
+    m[12] = t[0];
+    m[13] = t[1];
+    m[14] = t[2];
+    return m;
+  }
+  function blendLocal(a, b, t) {
+    const A = toTRS(a), B = toTRS(b);
+    const sg = A.q[0] * B.q[0] + A.q[1] * B.q[1] + A.q[2] * B.q[2] + A.q[3] * B.q[3] < 0 ? -1 : 1;
+    const q = [0, 0, 0, 0];
+    for (let k = 0; k < 4; k++) q[k] = A.q[k] * (1 - t) + B.q[k] * sg * t;
+    const l = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+    for (let k = 0; k < 4; k++) q[k] /= l;
+    const tt = [0, 1, 2].map((k) => A.t[k] + (B.t[k] - A.t[k]) * t), ss = [0, 1, 2].map((k) => A.s[k] + (B.s[k] - A.s[k]) * t);
+    return fromTRS(tt, q, ss);
+  }
+
+  // src/cat.js
+  function parseCat(buf) {
+    const d = new Uint8Array(buf), v = new DataView(buf), N = d.length;
+    const u32 = (o) => o + 4 <= N ? v.getUint32(o, true) : 0;
+    const isNode = (o) => {
+      const k = u32(o), n = u32(o + 4);
+      if (k === 1 && n === 1) return u32(o + 12) === 256;
+      return k === 0 && n > 0 && n < 65536 && u32(o + 12) === 256;
+    };
+    const tag = (o, s) => o + s.length <= N && [...s].every((c, i) => d[o + i] === c.charCodeAt(0));
+    const kind = (o) => o + 4 > N ? "blob" : tag(o, "tmd") ? "tmd" : tag(o, "tmo") ? "tmo" : tag(o, "DDS ") ? "dds" : "blob";
+    const isTexPack = (o) => {
+      const hs = u32(o), n = u32(o + 4);
+      return n && n < 4096 && hs >= 12 + 4 * n && hs <= 4096 && o + hs + 4 <= N && tag(o + hs, "DDS ");
+    };
+    const names = (o, size) => {
+      const out2 = [];
+      let cur = "";
+      for (let i = o; i < o + size && i < N && d[i]; i++) {
+        const c = d[i];
+        if (c === 13) continue;
+        if (c >= 128) {
+          cur += String.fromCharCode(c);
+          continue;
+        }
+        if (c === 10 || c === 44) {
+          if (cur) out2.push(cur);
+          cur = "";
+          continue;
+        }
+        if (c < 32 || c > 126) return [];
+        cur += String.fromCharCode(c);
+      }
+      if (cur) out2.push(cur);
+      return out2;
+    };
+    const out = [];
+    let texGroup = 0;
+    const walk = (o, end, depth) => {
+      if (depth > 16 || o + 8 > N) return;
+      const k = u32(o), n = u32(o + 4);
+      if (k === 1) {
+        const child = o + u32(o + 12), sz = u32(o + 16);
+        walk(child, sz && child + sz <= end ? child + sz : end, depth + 1);
+        return;
+      }
+      if (n === 0 || n >= 65536) return;
+      const offs = [], sizes = [];
+      for (let i = 0; i < n; i++) {
+        offs.push(o + u32(o + 20 + 4 * i));
+        sizes.push(u32(o + 20 + 4 * (n + i)));
+      }
+      for (let i = 0; i < n; i++) {
+        let lim = end;
+        for (let j = 0; j < n; j++) if (offs[j] > offs[i]) lim = Math.min(lim, offs[j]);
+        if (sizes[i] === 0 || offs[i] + sizes[i] > end) sizes[i] = lim > offs[i] ? lim - offs[i] : 0;
+      }
+      let nm = [], first = 0;
+      if (!isNode(offs[0]) && kind(offs[0]) === "blob" && !isTexPack(offs[0]) && !tag(offs[0], "fx00")) {
+        nm = names(offs[0], sizes[0]);
+        first = 1;
+      }
+      if (n - first === 1 && isTexPack(offs[first])) {
+        const p = offs[first], hs = u32(p), cnt = u32(p + 4), tot = u32(p + 8), g = texGroup++;
+        for (let i = 0; i < cnt; i++) {
+          const a = u32(p + 12 + 4 * i), b = i + 1 < cnt ? u32(p + 16 + 4 * i) : tot;
+          const e = { name: i < nm.length ? nm[i] : "tex" + i, kind: "dds", offset: p + hs + a, size: b > a ? b - a : 0, group: g };
+          if (e.offset + e.size > N) e.size = Math.max(0, N - e.offset);
+          out.push(e);
+        }
+        return;
+      }
+      for (let i = first; i < n; i++) {
+        if (isNode(offs[i])) {
+          walk(offs[i], offs[i] + sizes[i], depth + 1);
+          continue;
+        }
+        const kd = kind(offs[i]);
+        out.push({ name: i - first < nm.length ? nm[i - first] : kd + i, kind: kd, offset: offs[i], size: sizes[i], group: -1 });
+      }
+    };
+    walk(0, N, 0);
+    return out.filter((e) => e.offset + e.size <= N);
+  }
+
+  // src/dds.js
+  function rgb565(c, o, k) {
+    o[k] = (c >> 11 & 31) * 255 / 31 | 0;
+    o[k + 1] = (c >> 5 & 63) * 255 / 63 | 0;
+    o[k + 2] = (c & 31) * 255 / 31 | 0;
+    o[k + 3] = 255;
+  }
+  function decodeDDS(buf, ofs = 0, size = buf.byteLength - ofs) {
+    const v = new DataView(buf, ofs, size), s = new Uint8Array(buf, ofs, size);
+    if (size < 128 || v.getUint32(0, true) !== 542327876) throw new Error("not a DDS file");
+    const h = v.getUint32(12, true), w = v.getUint32(16, true);
+    const pf = v.getUint32(80, true), four = v.getUint32(84, true), bits = v.getUint32(88, true);
+    let o = 128;
+    if (pf & 4 && four === 808540228) o += 20;
+    if (!w || !h || w > 16384 || h > 16384) throw new Error("bad DDS size");
+    const out = new Uint8Array(w * h * 4).fill(255);
+    if (pf & 4) {
+      const cc = String.fromCharCode(four & 255, four >> 8 & 255, four >> 16 & 255, four >>> 24);
+      const mode = cc === "DXT1" ? 1 : cc === "DXT3" ? 3 : cc === "DXT5" ? 5 : 0;
+      if (!mode) throw new Error("unsupported DDS format " + cc);
+      const bs = mode === 1 ? 8 : 16, bw = w + 3 >> 2, bh = h + 3 >> 2;
+      if (o + bw * bh * bs > size) throw new Error("DDS data truncated");
+      const pal = new Uint8Array(16), px = new Uint8Array(64), a = new Uint8Array(8);
+      for (let by = 0; by < bh; by++)
+        for (let bx = 0; bx < bw; bx++) {
+          const b = o + (by * bw + bx) * bs, cb = mode === 1 ? b : b + 8;
+          const c0 = s[cb] | s[cb + 1] << 8, c1 = s[cb + 2] | s[cb + 3] << 8;
+          rgb565(c0, pal, 0);
+          rgb565(c1, pal, 4);
+          if (c0 > c1 || mode !== 1) {
+            for (let i = 0; i < 3; i++) {
+              pal[8 + i] = (2 * pal[i] + pal[4 + i]) / 3 | 0;
+              pal[12 + i] = (pal[i] + 2 * pal[4 + i]) / 3 | 0;
+            }
+            pal[11] = pal[15] = 255;
+          } else {
+            for (let i = 0; i < 3; i++) {
+              pal[8 + i] = (pal[i] + pal[4 + i]) / 2 | 0;
+              pal[12 + i] = 0;
+            }
+            pal[11] = 255;
+            pal[15] = 0;
+          }
+          const bitsC = (s[cb + 4] | s[cb + 5] << 8 | s[cb + 6] << 16 | s[cb + 7] << 24) >>> 0;
+          for (let i = 0; i < 16; i++) {
+            const p = (bitsC >>> 2 * i & 3) * 4;
+            px[i * 4] = pal[p];
+            px[i * 4 + 1] = pal[p + 1];
+            px[i * 4 + 2] = pal[p + 2];
+            px[i * 4 + 3] = pal[p + 3];
+          }
+          if (mode === 3) {
+            for (let i = 0; i < 16; i++) px[i * 4 + 3] = (s[b + (i >> 1)] >> 4 * (i & 1) & 15) * 17;
+          } else if (mode === 5) {
+            a[0] = s[b];
+            a[1] = s[b + 1];
+            if (a[0] > a[1]) for (let i = 1; i < 7; i++) a[i + 1] = ((7 - i) * a[0] + i * a[1]) / 7 | 0;
+            else {
+              for (let i = 1; i < 5; i++) a[i + 1] = ((5 - i) * a[0] + i * a[1]) / 5 | 0;
+              a[6] = 0;
+              a[7] = 255;
+            }
+            const lo = s[b + 2] | s[b + 3] << 8 | s[b + 4] << 16, hi = s[b + 5] | s[b + 6] << 8 | s[b + 7] << 16;
+            for (let i = 0; i < 16; i++) px[i * 4 + 3] = a[i < 8 ? lo >> 3 * i & 7 : hi >> 3 * (i - 8) & 7];
+          }
+          for (let i = 0; i < 16; i++) {
+            const x = bx * 4 + (i & 3), y = by * 4 + (i >> 2);
+            if (x < w && y < h) {
+              const q = (y * w + x) * 4;
+              out[q] = px[i * 4];
+              out[q + 1] = px[i * 4 + 1];
+              out[q + 2] = px[i * 4 + 2];
+              out[q + 3] = px[i * 4 + 3];
+            }
+          }
+        }
+      return { width: w, height: h, rgba: out };
+    }
+    if (bits !== 32 && bits !== 24) throw new Error("unsupported uncompressed DDS (" + bits + " bpp)");
+    const bpp = bits / 8;
+    if (o + w * h * bpp > size) throw new Error("DDS data truncated");
+    const masks = [92, 96, 100, 104].map((k) => v.getUint32(k, true));
+    const chan = (val, mask) => {
+      if (!mask) return 255;
+      let sh = 0;
+      while (!(mask >>> sh & 1)) sh++;
+      const m = mask >>> sh;
+      return Math.round((val >>> sh & m) * 255 / m);
+    };
+    for (let i = 0; i < w * h; i++) {
+      const p = o + i * bpp;
+      const val = bpp === 4 ? v.getUint32(p, true) : s[p] | s[p + 1] << 8 | s[p + 2] << 16;
+      out[i * 4] = chan(val, masks[0]);
+      out[i * 4 + 1] = chan(val, masks[1]);
+      out[i * 4 + 2] = chan(val, masks[2]);
+      out[i * 4 + 3] = pf & 1 ? chan(val, masks[3]) : 255;
+    }
+    return { width: w, height: h, rgba: out };
+  }
+
+  // src/tmd2.js
+  var VF = {
+    POS: 2,
+    NORMAL: 4,
+    TANGENTS: 8,
+    UV0: 16,
+    UV1: 32,
+    UV2: 64,
+    COLOR: 128,
+    U100: 256,
+    U200: 512,
+    SKIN: 1024,
+    INDEX32: 2048,
+    SKELETON: 8192
+  };
+  var Model = class {
+    /** buf: ArrayBuffer holding the tmd2 file (a copy cut out of its catalogue) */
+    constructor(buf, name = "") {
+      this.name = name;
+      const v = new DataView(buf), u8 = new Uint8Array(buf);
+      this.buf = buf;
+      this.v = v;
+      const q = (o2) => Number(v.getBigUint64(o2, true)), u = (o2) => v.getUint32(o2, true);
+      const f = this.flags = v.getUint16(6, true);
+      this.skinned = v.getUint16(8, true);
+      this.version = v.getUint16(10, true);
+      this.animFrames = v.getUint16(14, true);
+      const P = {
+        meshes: q(40),
+        staticX: q(48),
+        animX: q(56),
+        commands: q(64),
+        materials: q(72),
+        params: q(80),
+        user: q(88),
+        keys: q(96),
+        groups: q(104),
+        indices: q(112),
+        texSlots: q(136),
+        vertices: q(144)
+      };
+      const Nn = { meshes: u(168), materials: u(184), userSize: u(192), groups: u(200), texSlots: u(216), vertices: u(220) };
+      this.P = P;
+      this.counts = Nn;
+      if (!(f & VF.POS)) throw new Error(name + ": model has no positions");
+      const n = Nn.vertices;
+      this.numVertices = n;
+      const pos = this.pos = new Float32Array(n * 3);
+      const wgt = f & VF.SKIN ? this.weights = new Float32Array(n * 4) : null;
+      const idx = f & VF.SKIN ? this.indices = new Uint8Array(n * 4) : null;
+      const nrm = f & VF.NORMAL ? this.normal = new Float32Array(n * 3) : null;
+      const tan = f & VF.TANGENTS ? this.tangent = new Float32Array(n * 3) : null;
+      const bin = f & VF.TANGENTS ? this.binormal = new Float32Array(n * 3) : null;
+      const col = f & VF.COLOR ? this.color = new Float32Array(n * 4) : null;
+      const uvs = [VF.UV0, VF.UV1, VF.UV2].map((bit) => f & bit ? new Float32Array(n * 2) : null);
+      [this.uv0, this.uv1, this.uv2] = uvs;
+      const sn = (b) => b / 255 * 2 - 1;
+      let o = P.vertices;
+      const bmin = [Infinity, Infinity, Infinity], bmax = [-Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < n; i++) {
+        for (let k = 0; k < 3; k++) {
+          const x = v.getFloat32(o + 4 * k, true);
+          pos[i * 3 + k] = x;
+          if (x < bmin[k]) bmin[k] = x;
+          if (x > bmax[k]) bmax[k] = x;
+        }
+        o += 12;
+        if (wgt) {
+          for (let k = 0; k < 4; k++) {
+            wgt[i * 4 + k] = u8[o + k] / 255;
+            idx[i * 4 + k] = u8[o + 4 + k];
+          }
+          o += 8;
+        }
+        if (nrm) {
+          for (let k = 0; k < 3; k++) nrm[i * 3 + k] = sn(u8[o + k]);
+          o += 4;
+        }
+        if (tan) {
+          for (let k = 0; k < 3; k++) {
+            tan[i * 3 + k] = sn(u8[o + k]);
+            bin[i * 3 + k] = sn(u8[o + 4 + k]);
+          }
+          o += 8;
+        }
+        if (col) {
+          for (let k = 0; k < 4; k++) col[i * 4 + k] = u8[o + k] / 255;
+          o += 4;
+        }
+        if (f & VF.U100) o += 4;
+        if (f & VF.U200) o += 4;
+        for (const uv of uvs) {
+          if (!uv) continue;
+          uv[i * 2] = v.getInt16(o, true) / 1024;
+          uv[i * 2 + 1] = (v.getInt16(o + 2, true) + 1024) / 1024;
+          o += 4;
+        }
+      }
+      this.boundsMin = bmin;
+      this.boundsMax = bmax;
+      const i32 = !!(f & VF.INDEX32);
+      this.groups = [];
+      for (let g = 0; g < Nn.groups; g++) {
+        const go = P.groups + 16 * g, tris = u(go), first = q(go + 8);
+        const a = new Uint32Array(tris * 3);
+        for (let k = 0; k < a.length; k++) {
+          const x = i32 ? u(P.indices + (first * 3 + k) * 4) : v.getUint16(P.indices + (first * 3 + k) * 2, true);
+          a[k] = x < n ? x : 0;
+        }
+        this.groups.push(a);
+      }
+      this.meshes = [];
+      for (let m = 0; m < Nn.meshes; m++) {
+        const mo = P.meshes + 56 * m;
+        const ncmd = v.getUint16(mo + 24, true), first = q(mo + 32);
+        const cmds = [];
+        for (let k = 0; k < ncmd; k++) {
+          const c = v.getUint16(P.commands + 2 * (first + k), true);
+          cmds.push([c >> 12, c & 4095]);
+        }
+        this.meshes.push({ flags: u8[mo + 26], xformType: u8[mo + 27], xformIndex: u(mo + 48), cmds });
+      }
+      this.materials = [];
+      for (let m = 0; m < Nn.materials; m++) {
+        const mo = P.materials + 20 * m;
+        const fourcc = String.fromCharCode(u8[mo + 4], u8[mo + 5], u8[mo + 6], u8[mo + 7]);
+        const ft = v.getUint16(mo + 8, true), nt = v.getUint16(mo + 10, true);
+        const slots = [];
+        for (let s = 0; s < nt; s++) {
+          const so = P.texSlots + 12 * (ft + s);
+          slots.push({ hash: u(so), kind: u8[so + 7] });
+        }
+        this.materials.push({ fourcc, slots, firstParam: v.getUint16(mo + 12, true), numParams: v.getUint16(mo + 14, true) });
+      }
+      this.bones = [];
+      this.invBind = [];
+      this.skinBatches = [];
+      if (f & VF.SKELETON) {
+        const S = { batches: q(224), palette: q(232), inv: q(240), bones: q(248), nb: u(256), ninv: u(264), nbone: u(268) };
+        for (let b = 0; b < S.nbone; b++) {
+          const bo = S.bones + 24 * b;
+          this.bones.push({
+            hash: u(bo),
+            offset: [v.getFloat32(bo + 4, true), v.getFloat32(bo + 8, true), v.getFloat32(bo + 12, true)],
+            parent: v.getInt32(bo + 16, true)
+          });
+        }
+        for (let b = 0; b < S.ninv; b++) {
+          const m = new Float64Array(16);
+          for (let k = 0; k < 16; k++) m[k] = v.getFloat32(S.inv + 64 * b + 4 * k, true);
+          this.invBind.push(m);
+        }
+        for (let s = 0; s < S.nb; s++) {
+          const so = S.batches + 16 * s, cnt = Math.max(0, v.getInt32(so, true)), off = q(so + 8);
+          this.skinBatches.push(Array.from(u8.subarray(S.palette + off, S.palette + off + cnt)));
+        }
+      }
+      this.numBones = this.bones.length;
+      this.boneIndex = /* @__PURE__ */ new Map();
+      this.bones.forEach((b, i) => {
+        if (!this.boneIndex.has(b.hash)) this.boneIndex.set(b.hash, i);
+      });
+      this.meshTags = [];
+      if (P.user && Nn.userSize && P.user + Nn.userSize <= u8.length) {
+        let p = P.user;
+        const end = P.user + Nn.userSize;
+        while (p < end && this.meshTags.length < Nn.meshes) {
+          let z = p;
+          while (z < end && u8[z]) z++;
+          let s = "";
+          for (let k = p; k < z; k++) s += String.fromCharCode(u8[k]);
+          this.meshTags.push(s);
+          p = z + 1;
+        }
+      }
+      if (this.meshTags.length !== Nn.meshes) this.meshTags = [];
+      this.textures = [];
+    }
+    findBone(h) {
+      const i = this.boneIndex.get(h);
+      return i === void 0 ? -1 : i;
+    }
+    /** one animated scalar (EvalBaked / EvalKeyed) */
+    channel(off, frame) {
+      const v = this.v, n = v.getUint16(off, true);
+      if (n === 0) return v.getFloat32(off + 4, true);
+      const first = v.getUint32(off + 4, true), K = this.P.keys;
+      if (this.version !== 513) return v.getFloat32(K + 4 * (n === 1 ? first : first + frame % n), true);
+      const key = (j) => [v.getUint16(K + 8 * (first + j), true), v.getFloat32(K + 8 * (first + j) + 4, true)];
+      if (n === 1) return key(0)[1];
+      const last2 = key(n - 1)[0];
+      const t = last2 ? frame % last2 : 0;
+      for (let j = 0; j < n; j++) {
+        const [fj, vj] = key(j);
+        if (t < fj) {
+          if (j === 0) return key(0)[1];
+          const [f0, v0] = key(j - 1);
+          return v0 + (t - f0) / (fj - f0) * (vj - v0);
+        }
+      }
+      return 0;
+    }
+    /** shader constants of a material at a frame: channel k -> out[k] (CTmd2MatAnimePlayer::Apply) */
+    materialParams(mi, frame, out = new Float32Array(32)) {
+      out.fill(0);
+      const m = this.materials[mi];
+      if (!m) return out;
+      const f = Math.floor(frame) & 65535;
+      for (let k = 0; k < Math.min(m.numParams, 32); k++) out[k] = this.channel(this.P.params + 8 * (m.firstParam + k), f);
+      return out;
+    }
+    /** mesh node transform (CalcMeshMatrix) and visibility (IsMeshVisible) */
+    meshMatrix(mi, frame) {
+      const m = this.meshes[mi], v = this.v;
+      if (m.xformType === 1) {
+        const o = this.P.staticX + 36 * m.xformIndex, g = (k) => v.getFloat32(o + 4 * k, true);
+        return { matrix: composeSRT([g(0), g(1), g(2)], [g(3), g(4), g(5)], [g(6), g(7), g(8)]), visible: true };
+      }
+      if (m.xformType === 2) {
+        const f = Math.floor(frame) & 65535, o = this.P.animX + 80 * m.xformIndex;
+        const c = [];
+        for (let k = 0; k < 10; k++) c.push(this.channel(o + 8 * k, f));
+        return { matrix: composeSRT(c.slice(0, 3), c.slice(3, 6), c.slice(6, 9)), visible: c[9] !== 0 };
+      }
+      return { matrix: null, visible: true };
+    }
+    findTexture(h) {
+      return this.textures.findIndex((t) => t.hash === h);
+    }
+  };
+  function catTextures(buf, entries, forceGroup = -1) {
+    const out = [];
+    for (const e of entries) {
+      if (e.kind !== "dds") continue;
+      try {
+        const t = decodeDDS(buf, e.offset, e.size);
+        out.push({ name: e.name, hash: hash(e.name), group: forceGroup >= 0 ? forceGroup : e.group, ...t });
+      } catch (err) {
+        console.warn(e.name, err.message);
+      }
+    }
+    return out;
+  }
+  function modelFromCat(buf, want = "") {
+    const entries = parseCat(buf);
+    const tmds = entries.filter((e2) => e2.kind === "tmd");
+    const e = want ? tmds.find((x) => x.name === want) : tmds[0];
+    if (!e) throw new Error(want ? "catalogue has no model " + want : "catalogue holds no model");
+    const m = new Model(buf.slice(e.offset, e.offset + e.size), e.name);
+    m.textures = catTextures(buf, entries);
+    return m;
+  }
+  function resolveTextures(order, sources) {
+    const best = /* @__PURE__ */ new Map();
+    const rank = (t) => [t.group >= 1 ? 1 : 0, t.width * t.height];
+    for (const list of sources) {
+      if (!list) continue;
+      for (const t of list) {
+        const b = best.get(t.hash);
+        if (!b) {
+          best.set(t.hash, t);
+          continue;
+        }
+        const a = rank(t), c = rank(b);
+        if (a[0] > c[0] || a[0] === c[0] && a[1] > c[1]) best.set(t.hash, t);
+      }
+    }
+    return order.map((t) => best.get(t.hash) || t);
+  }
+
+  // src/physics.js
+  var G = -3.92266;
+  var DT = 1 / 60;
+  function subBlock(v, o) {
+    const lim = [];
+    for (let l = 0; l < 3; l++) {
+      const lo = o + 20 + l * 28;
+      lim.push({ kind: v.getInt16(lo, true), min: v.getFloat32(lo + 8, true), max: v.getFloat32(lo + 12, true) });
+    }
+    return {
+      pull: v.getFloat32(o, true),
+      gravity: v.getFloat32(o + 4, true),
+      keep: v.getFloat32(o + 8, true),
+      spring: v.getFloat32(o + 12, true),
+      flag0: v.getUint8(o + 16),
+      limit: lim
+    };
+  }
+  function limits(p) {
+    let tMin = 0, tMax = 0, rot = 180;
+    for (const l of p.limit) {
+      if (l.kind === 1) {
+        tMin = l.min;
+        tMax = l.max;
+      } else if (l.kind === 2) rot = Math.max(Math.abs(l.min), Math.abs(l.max));
+    }
+    return [tMin, tMax, rot];
+  }
+  function closestSegSeg(p1, q1, p2, q2) {
+    const d1 = sub(q1, p1), d2 = sub(q2, p2), r = sub(p1, p2);
+    const a = dot(d1, d1), e = dot(d2, d2), f = dot(d2, r);
+    let s, t;
+    if (a <= 1e-12 && e <= 1e-12) {
+      s = t = 0;
+    } else if (a <= 1e-12) {
+      s = 0;
+      t = clamp(f / e, 0, 1);
+    } else {
+      const c = dot(d1, r);
+      if (e <= 1e-12) {
+        t = 0;
+        s = clamp(-c / a, 0, 1);
+      } else {
+        const b = dot(d1, d2), den = a * e - b * b;
+        s = den > 1e-12 ? clamp((b * f - c * e) / den, 0, 1) : 0;
+        t = (b * s + f) / e;
+        if (t < 0) {
+          t = 0;
+          s = clamp(-c / a, 0, 1);
+        } else if (t > 1) {
+          t = 1;
+          s = clamp((b - c) / a, 0, 1);
+        }
+      }
+    }
+    return { s, t, c1: add(p1, scale(d1, s)), c2: add(p2, scale(d2, t)) };
+  }
+  function bustParams(buf, costume) {
+    const v = new DataView(buf);
+    const countA = v.getInt16(2, true);
+    let idx = costume % 174, ofs = 4;
+    if (idx > 28) {
+      ofs += countA * 120;
+      idx -= 29;
+    }
+    ofs += idx * 120;
+    if (idx < 0 || ofs + 120 > buf.byteLength) return null;
+    const out = [];
+    for (let side = 0; side < 2; side++) {
+      const f = [];
+      for (let k = 0; k < 15; k++) f.push(v.getFloat32(ofs + side * 60 + 4 * k, true));
+      const cm = 0.01;
+      out.push({ limit: [f[4] * cm, f[5] * cm, f[6] * cm, f[7] * cm, f[8] * cm, f[9] * cm], keep: f[12], spring: f[13] });
+    }
+    return out;
+  }
+  var Physics = class {
+    constructor(owner) {
+      this.owner = owner;
+      this.chains = [];
+      this.links = [];
+      this.shapes = [];
+      this.enabled = true;
+      this.initialized = false;
+      this.accum = 0;
+      this.mass = 1;
+      this.margin = 0.015;
+      this.segmentCollision = true;
+      this.anchor = -1;
+      this.bust = [];
+      this.bustEnabled = true;
+      this.grab = null;
+      this.held = [];
+      this.drive = null;
+      this.driveFrame = 0;
+      this.matched = 0;
+      this.total = 0;
+    }
+    get active() {
+      return this.chains.length > 0 || this.bust.some((b) => b.bone >= 0);
+    }
+    reset() {
+      this.initialized = false;
+      this.accum = 0;
+    }
+    /** returns false when 'skipIfUnmatched' and none of the file's bones are in the model */
+    addYure(buf, skipIfUnmatched = false) {
+      const v = new DataView(buf), m = this.owner.model;
+      if (buf.byteLength < 156 + 4 * 432) return false;
+      const nj = v.getUint32(8, true), nl = v.getUint32(12, true), nc = v.getUint32(16, true);
+      const ob = v.getUint32(20, true), ol = v.getUint32(24, true);
+      if (!nj || nc > 32 || ob + nj * 12 > buf.byteLength || ol + nl * 16 > buf.byteLength) return false;
+      if (skipIfUnmatched) {
+        let any = false;
+        for (let i = 0; i < nj && !any; i++) any = m.findBone(v.getUint32(ob + 12 * i, true)) >= 0;
+        if (!any) return false;
+      }
+      const levels = [];
+      for (let r = 0; r < 4; r++) {
+        const o = 156 + r * 432;
+        levels.push({
+          type: v.getInt16(o, true),
+          sub: [0, 1, 2, 3].map((k) => subBlock(v, o + 12 + k * 104)),
+          axis: [0, 1, 2, 3].map((k) => v.getUint8(o + 428 + k))
+        });
+      }
+      const firstChain = this.chains.length;
+      let j = 0;
+      for (let c = 0; c < nc; c++) {
+        const n = v.getInt32(28 + 4 * c, true);
+        if (n <= 0 || j + n > nj) return false;
+        const chain = [];
+        for (let k = 0; k < n; k++, j++) {
+          const o = ob + 12 * j, h = v.getUint32(o, true);
+          const isRoot = v.getUint8(o + 4), isTip = v.getUint8(o + 5), special = v.getUint8(o + 6);
+          let lv = v.getInt16(o + 8, true);
+          if (lv < 0 || lv >= 4) lv = 0;
+          const sub2 = special ? 3 : isRoot ? 0 : isTip ? 2 : 1;
+          const bone = m.findBone(h);
+          chain.push({
+            bone,
+            hash: h,
+            parent: k - 1,
+            root: !!isRoot || k === 0,
+            anchored: !!isRoot || k === 0,
+            type: levels[lv].type,
+            prm: levels[lv].sub[sub2],
+            axis: levels[lv].axis,
+            pos: [0, 0, 0],
+            prev: [0, 0, 0],
+            anim: [0, 0, 0]
+          });
+          this.total++;
+          if (bone >= 0) this.matched++;
+        }
+        this.chains.push(chain);
+      }
+      for (let i = 0; i < nl; i++) {
+        const o = ol + 16 * i;
+        const l = { chainA: v.getUint16(o, true), jointA: v.getUint16(o + 2, true), chainB: v.getUint16(o + 4, true), jointB: v.getUint16(o + 6, true) };
+        if (l.chainA === l.chainB || l.chainA >= nc || l.chainB >= nc) continue;
+        l.chainA += firstChain;
+        l.chainB += firstChain;
+        if (l.jointA < this.chains[l.chainA].length && l.jointB < this.chains[l.chainB].length) this.links.push(l);
+      }
+      this.reset();
+      return true;
+    }
+    /** shape bones are looked up in this owner first, then in 'other' (e.g. the body) */
+    addCollision(buf, other = null) {
+      const v = new DataView(buf);
+      if (buf.byteLength < 4) return;
+      const n = v.getUint32(0, true);
+      if (4 + n * 44 > buf.byteLength) return;
+      const ref = (h) => {
+        let b = this.owner.model.findBone(h);
+        if (b >= 0) return [this.owner, b];
+        if (other && (b = other.model.findBone(h)) >= 0) return [other, b];
+        return [null, -1];
+      };
+      for (let i = 0; i < n; i++) {
+        const o = 4 + 44 * i, type = v.getUint16(o + 2, true);
+        const [ownerA, boneA] = ref(v.getUint32(o + 4, true));
+        let [ownerB, boneB] = type === 0 ? ref(v.getUint32(o + 8, true)) : [null, -1];
+        if (boneB < 0) {
+          ownerB = ownerA;
+          boneB = boneA;
+        }
+        if (boneA < 0) continue;
+        const f = (k) => v.getFloat32(o + k, true) * 0.01;
+        this.shapes.push({
+          type,
+          ownerA,
+          boneA,
+          ownerB,
+          boneB,
+          radius: f(12),
+          offA: [f(16), f(20), f(24)],
+          offB: [f(28), f(32), f(36)],
+          group: v.getUint32(o + 40, true)
+        });
+      }
+    }
+    setupBust(params) {
+      const m = this.owner.model;
+      this.bust = [];
+      this.anchor = -1;
+      const r = m.findBone(hash("bust_R00")), l = m.findBone(hash("bust_L00"));
+      if (r < 0 && l < 0) return false;
+      this.anchor = m.findBone(hash("thorax"));
+      if (this.anchor < 0) this.anchor = m.bones[r >= 0 ? r : l].parent;
+      if (this.anchor < 0) return false;
+      const bind = [];
+      for (let i = 0; i < m.numBones; i++) {
+        const b = m.bones[i], t = ident();
+        t[12] = b.offset[0];
+        t[13] = b.offset[1];
+        t[14] = b.offset[2];
+        if (b.parent >= 0) {
+          const p = bind[b.parent];
+          t[12] += p[12];
+          t[13] += p[13];
+          t[14] += p[14];
+        }
+        bind.push(t);
+      }
+      const inv = invAffine(bind[this.anchor]);
+      if (!inv) return false;
+      const dflt = { limit: [-0.05, 0.05, -0.05, 0.05, -0.01, 0.03], keep: 0.88, spring: 0.075 };
+      [r, l].forEach((b, s) => {
+        this.bust.push({
+          bone: b,
+          rest: b >= 0 ? xform(row(bind[b], 3), inv) : [0, 0, 0],
+          pos: [0, 0, 0],
+          vel: [0, 0, 0],
+          ext: [0, 0, 0],
+          offset: [0, 0, 0],
+          prm: params && params[s] || dflt
+        });
+      });
+      this.reset();
+      return true;
+    }
+    // ------------------------------------------------------------------------- shapes
+    _axis(s) {
+      const ra = s.ownerA.world[s.boneA], a = xform(s.offA, ra);
+      let b = a;
+      if (s.type === 0 && s.boneB >= 0) {
+        const wb = s.ownerB.world[s.boneB];
+        b = add(row(wb, 3), add(add(scale(row(ra, 0), s.offB[0]), scale(row(ra, 1), s.offB[1])), scale(row(ra, 2), s.offB[2])));
+      }
+      return [a, b];
+    }
+    /** penetration depth of p into the shape, and the closest axis point c / offset q / its length ql */
+    _depth(s, p) {
+      const [a, b] = this._axis(s);
+      let c = a;
+      if (s.type === 0) {
+        const ab = sub(b, a), t = clamp(dot(sub(p, a), ab) / Math.max(1e-9, dot(ab, ab)), 0, 1);
+        c = add(a, scale(ab, t));
+      }
+      const q = sub(p, c), ql = len(q);
+      return { d: s.radius - ql, c, q, ql };
+    }
+    // ------------------------------------------------------------------------- per frame
+    /** after the owner's world holds the animated pose; rewrites the owner's world */
+    apply(dt) {
+      if (!this.enabled || !this.active) return;
+      const m = this.owner.model, W = this.owner.world;
+      for (const ch of this.chains) for (const j of ch) if (j.bone >= 0) j.anim = row(W[j.bone], 3);
+      for (const ch of this.chains) for (const j of ch) {
+        j.anchored = j.root;
+        if (!j.root && j.bone >= 0 && this.drive && this.drive.drivesJoint(j.hash, this.driveFrame)) j.anchored = true;
+      }
+      if (!this.initialized || dt < 0 || dt > 0.5) {
+        for (const ch of this.chains) for (const j of ch) {
+          j.pos = j.anim.slice();
+          j.prev = j.anim.slice();
+        }
+        for (const b of this.bust) if (b.bone >= 0) {
+          b.pos = xform(b.rest, W[this.anchor]);
+          b.vel = [0, 0, 0];
+          b.ext = [0, 0, 0];
+          b.offset = [0, 0, 0];
+        }
+        this.initialized = true;
+        this.accum = 0;
+      }
+      this.accum += dt * 60;
+      let steps = Math.floor(this.accum);
+      this.accum -= steps;
+      steps = Math.min(steps, 4);
+      for (let s = 0; s < steps; s++) {
+        if (this.chains.length) {
+          this._step();
+          this._constrain(false);
+          const g = this.grab;
+          if (g && g.kind === 1) {
+            const gc = this.chains[g.chain];
+            this._reach(gc, g.joint, g.target);
+            for (const n of g.neighbours) {
+              const nc = this.chains[n.chain], J = nc[n.joint];
+              if (n.level === 1) this._reach(nc, n.joint, add(J.pos, scale(sub(add(g.target, n.offset), J.pos), 0.425)));
+              else this._reach(nc, n.joint, add(J.pos, scale(sub(add(n.pick, scale(sub(g.target, g.picked), 0.425)), J.pos), 0.425)));
+            }
+            this._constrain(true);
+            this._reach(gc, g.joint, g.target);
+          }
+        }
+        if (this.bustEnabled && this.bust.length) this._stepBust();
+      }
+      if (this.chains.length) this._writeBack();
+      if (this.bustEnabled && this.bust.length) this._writeBackBust();
+    }
+    _step() {
+      const W = this.owner.world;
+      for (const ch of this.chains)
+        for (const j of ch) {
+          if (j.bone < 0) continue;
+          if (j.anchored) {
+            j.prev = j.pos;
+            j.pos = j.anim.slice();
+            continue;
+          }
+          const p = j.prm;
+          let target = j.anim;
+          if (j.parent >= 0) {
+            const pj = ch[j.parent];
+            if (pj.bone >= 0) target = add(pj.pos, sub(j.anim, pj.anim));
+          }
+          const vel = sub(j.pos, j.prev);
+          let d;
+          if (j.type === 0) {
+            const k = Math.min(p.spring, 1);
+            let g = G * p.gravity;
+            if (p.flag0 === 1) g *= 0.5;
+            d = add(add(scale(sub(target, j.pos), this.mass * p.pull * k * k), scale(vel, p.keep)), [0, g * this.mass * p.pull * DT * DT, 0]);
+          } else {
+            const f = scale(sub(target, j.pos), p.spring);
+            f[1] += G * p.gravity;
+            d = add(scale(vel, p.keep), scale(f, p.pull * this.mass * DT * DT));
+          }
+          if (j.axis && !(j.axis[0] && j.axis[1] && j.axis[2])) {
+            for (let a = 0; a < 3; a++) if (!j.axis[a]) {
+              let ax = row(W[j.bone], a);
+              const l = len(ax);
+              if (l > 1e-6) {
+                ax = scale(ax, 1 / l);
+                d = sub(d, scale(ax, dot(d, ax)));
+              }
+            }
+          }
+          j.prev = j.pos;
+          j.pos = add(j.pos, d);
+        }
+    }
+    _constrain(heldOnly) {
+      const isHeld = (c) => !!this.held[c];
+      for (let iter = 0; iter < 3; iter++) {
+        for (const l of this.links) {
+          const a = this.chains[l.chainA][l.jointA], b = this.chains[l.chainB][l.jointB];
+          if (a.bone < 0 || b.bone < 0 || a.anchored && b.anchored) continue;
+          if (heldOnly && !isHeld(l.chainA) && !isHeld(l.chainB)) continue;
+          const rest = len(sub(b.anim, a.anim)), d = sub(b.pos, a.pos), L = len(d);
+          if (L < 1e-6 || rest < 1e-6) continue;
+          const target = clamp(L, rest * 0.8, rest * 1.2);
+          if (target === L) continue;
+          const corr = scale(d, (L - target) / L);
+          const wa = a.anchored ? 0 : b.anchored ? 1 : 0.5, wb = 1 - wa;
+          a.pos = add(a.pos, scale(corr, wa));
+          b.pos = sub(b.pos, scale(corr, wb));
+        }
+        for (let ci = 0; ci < this.chains.length; ci++) {
+          const ch = this.chains[ci], held = isHeld(ci);
+          if (heldOnly && !held) continue;
+          for (const j of ch) {
+            if (j.bone < 0 || j.anchored || j.parent < 0) continue;
+            const pj = ch[j.parent];
+            if (pj.bone < 0) continue;
+            let [tMin, tMax, rotDeg] = limits(j.prm);
+            if (held) rotDeg = 180;
+            const restV = sub(j.anim, pj.anim), rest = len(restV);
+            if (rest < 1e-6) {
+              j.pos = pj.pos.slice();
+              continue;
+            }
+            let d = sub(j.pos, pj.pos), L = len(d);
+            if (L < 1e-6) {
+              d = restV;
+              L = rest;
+            }
+            const u = scale(d, 1 / L), r = scale(restV, 1 / rest);
+            const ang = Math.acos(clamp(dot(u, r), -1, 1)), maxA = rotDeg * 0.0174533;
+            if (ang > maxA) {
+              const k = cross(r, u), kl = len(k);
+              d = kl > 1e-6 ? scale(rotate(r, scale(k, 1 / kl), maxA), L) : scale(r, L);
+            }
+            const target = clamp(L, rest + tMin, rest + tMax);
+            d = scale(d, target / L);
+            j.pos = add(pj.pos, d);
+            const group = j.axis ? j.axis[3] : 0;
+            for (const sh of this.shapes) {
+              if (group > 0 && sh.group > 0 && group !== sh.group) continue;
+              const r2 = this._depth(sh, j.pos);
+              if (r2.d > -this.margin && r2.ql > 1e-6) j.pos = add(r2.c, scale(r2.q, (sh.radius + this.margin) / r2.ql));
+            }
+            if (this.segmentCollision) {
+              const pm = ch[j.parent];
+              for (const sh of this.shapes) {
+                if (group > 0 && sh.group > 0 && group !== sh.group) continue;
+                const [sa, sb] = this._axis(sh);
+                if (this._depth(sh, pm.pos).d > -this.margin) continue;
+                const cs = closestSegSeg(pm.pos, j.pos, sa, sb);
+                const q = sub(cs.c1, cs.c2), ql = len(q), want = sh.radius;
+                if (ql >= want || ql < 1e-6) continue;
+                const push = scale(q, (want - ql) / ql);
+                const wp = pm.anchored ? 0 : 1 - cs.s, wj = cs.s, norm2 = wp * wp + wj * wj;
+                if (norm2 < 1e-6) continue;
+                pm.pos = add(pm.pos, scale(push, wp / norm2));
+                j.pos = add(j.pos, scale(push, wj / norm2));
+              }
+            }
+          }
+        }
+      }
+    }
+    _writeBack() {
+      const m = this.owner.model, W = this.owner.world, n = m.numBones;
+      const childJoint = new Int32Array(n).fill(-1), childChain = new Int32Array(n).fill(-1);
+      this.chains.forEach((ch, c) => {
+        for (let k = 1; k < ch.length; k++) {
+          const j = ch[k], p = ch[j.parent];
+          if (j.bone >= 0 && p.bone >= 0) {
+            childJoint[p.bone] = k;
+            childChain[p.bone] = c;
+          }
+        }
+      });
+      const anim = W.map((x) => x.slice());
+      for (let b = 0; b < n; b++) {
+        const par = m.bones[b].parent;
+        const w = anim[b].slice();
+        if (par >= 0 && par < b) {
+          const pa = anim[par], pn = W[par];
+          const X = row(pa, 0), Y = row(pa, 1), Z = row(pa, 2), O = row(pa, 3);
+          const cx = cross(Y, Z), cy = cross(Z, X), cz = cross(X, Y), det = dot(X, cx);
+          if (Math.abs(det) > 1e-12) {
+            for (let i = 0; i < 4; i++) {
+              let v = row(w, i);
+              if (i === 3) v = sub(v, O);
+              const l = [dot(v, cx) / det, dot(v, cy) / det, dot(v, cz) / det];
+              let o = add(add(scale(row(pn, 0), l[0]), scale(row(pn, 1), l[1])), scale(row(pn, 2), l[2]));
+              if (i === 3) o = add(o, row(pn, 3));
+              w[i * 4] = o[0];
+              w[i * 4 + 1] = o[1];
+              w[i * 4 + 2] = o[2];
+            }
+          }
+        }
+        if (childJoint[b] >= 0) {
+          const cj = this.chains[childChain[b]][childJoint[b]], o = row(w, 3), ab = anim[b];
+          const X = row(ab, 0), Y = row(ab, 1), Z = row(ab, 2);
+          const cx = cross(Y, Z), cy = cross(Z, X), cz = cross(X, Y), det = dot(X, cx);
+          const v = sub(cj.anim, row(ab, 3));
+          const lc = Math.abs(det) > 1e-12 ? [dot(v, cx) / det, dot(v, cy) / det, dot(v, cz) / det] : [0, 0, 0];
+          const from = add(add(scale(row(w, 0), lc[0]), scale(row(w, 1), lc[1])), scale(row(w, 2), lc[2]));
+          const to = sub(cj.pos, o), lf = len(from), lt = len(to);
+          if (lf > 1e-6 && lt > 1e-6) {
+            const f = scale(from, 1 / lf), t = scale(to, 1 / lt);
+            let k = cross(f, t);
+            const s = len(k), c = clamp(dot(f, t), -1, 1);
+            if (s > 1e-7) {
+              k = scale(k, 1 / s);
+              const a = Math.atan2(s, c);
+              for (let i = 0; i < 3; i++) {
+                const r2 = rotate(row(w, i), k, a);
+                w[i * 4] = r2[0];
+                w[i * 4 + 1] = r2[1];
+                w[i * 4 + 2] = r2[2];
+              }
+            }
+          }
+        }
+        W[b] = w;
+      }
+    }
+    _stepBust() {
+      const M = this.owner.world[this.anchor], inv = invAffine(M);
+      for (let s = 0; s < this.bust.length; s++) {
+        const b = this.bust[s];
+        if (b.bone < 0) continue;
+        const p = b.prm;
+        if (this.grab && this.grab.kind === 2 && this.grab.side === s) b.ext = sub(this.grab.target, b.pos);
+        const el = len(b.ext);
+        if (el * el >= 15625e-8) b.ext = scale(b.ext, 0.0125 / el);
+        const T = xform(b.rest, M);
+        b.pos = add(b.pos, scale(b.vel, p.keep));
+        b.vel = add(add(scale(sub(T, b.pos), p.spring), scale(b.vel, p.keep)), b.ext);
+        b.ext = scale(b.ext, p.keep - p.spring);
+        if (inv) {
+          const L = sub(xform(b.pos, inv), b.rest), L0 = L.slice();
+          L[0] = clamp(L[0], p.limit[0], p.limit[1]);
+          L[1] = clamp(L[1], p.limit[2], p.limit[3]);
+          L[2] = clamp(L[2], p.limit[4], p.limit[5]);
+          if (L[0] !== L0[0] || L[1] !== L0[1] || L[2] !== L0[2]) b.pos = xform(add(L, b.rest), M);
+        }
+        if (!b.pos.every(Number.isFinite)) {
+          b.pos = T;
+          b.vel = [0, 0, 0];
+        }
+        b.offset = sub(b.pos, T);
+      }
+      const [a, c] = this.bust;
+      if (a && c && a.bone >= 0 && c.bone >= 0) {
+        const d = sub(a.pos, c.pos), L = len(d);
+        if (L * L <= 64e-4 && L > 1e-6) {
+          const n = scale(d, 1 / L), push = (0.08 - L) * 0.5;
+          a.vel = add(a.vel, scale(n, push));
+          c.vel = sub(c.vel, scale(n, push));
+        }
+      }
+    }
+    _writeBackBust() {
+      const m = this.owner.model, W = this.owner.world, n = m.numBones;
+      const shift = new Array(n), moved = new Uint8Array(n);
+      for (const b of this.bust) if (b.bone >= 0) {
+        shift[b.bone] = b.offset;
+        moved[b.bone] = 1;
+      }
+      for (let i = 0; i < n; i++) {
+        const par = m.bones[i].parent;
+        if (!moved[i] && par >= 0 && moved[par]) {
+          shift[i] = shift[par];
+          moved[i] = 1;
+        }
+        if (moved[i]) {
+          const w = W[i].slice();
+          w[12] += shift[i][0];
+          w[13] += shift[i][1];
+          w[14] += shift[i][2];
+          W[i] = w;
+        }
+      }
+    }
+    // ------------------------------------------------------------------------- touch / grab
+    /** ray (origin o, unit direction d): picks a bust side or a free yure particle; returns the hit distance or -1 */
+    pick(o, d, pr = 0.08, br = 0.1) {
+      let bestT = 1e30, g = null;
+      const test = (p, r, cand) => {
+        const op = sub(p, o), t = dot(op, d);
+        if (t <= 0) return;
+        const q = sub(op, scale(d, t));
+        if (dot(q, q) > r * r || t >= bestT) return;
+        bestT = t;
+        g = { ...cand, target: p.slice() };
+      };
+      if (this.bustEnabled) this.bust.forEach((b, s) => {
+        if (b.bone >= 0) test(b.pos, br, { kind: 2, side: s });
+      });
+      this.chains.forEach((ch, c) => ch.forEach((J, j) => {
+        if (J.bone >= 0 && !J.anchored) test(J.pos, pr, { kind: 1, chain: c, joint: j });
+      }));
+      if (!g) return -1;
+      g.picked = g.target.slice();
+      g.neighbours = [];
+      if (g.kind === 1) {
+        let frontier = [[g.chain, g.joint]];
+        const seen = [[g.chain, g.joint]];
+        for (let level = 1; level <= 2; level++) {
+          const next = [];
+          for (const [fc, fj] of frontier)
+            for (const l of this.links) {
+              let c = -1, j = -1;
+              if (l.chainA === fc && l.jointA === fj) {
+                c = l.chainB;
+                j = l.jointB;
+              } else if (l.chainB === fc && l.jointB === fj) {
+                c = l.chainA;
+                j = l.jointA;
+              }
+              if (c < 0) continue;
+              const J = this.chains[c][j];
+              if (!J || J.anchored || J.bone < 0) continue;
+              if (seen.some(([a, b]) => a === c && b === j)) continue;
+              seen.push([c, j]);
+              next.push([c, j]);
+              g.neighbours.push({ chain: c, joint: j, offset: sub(J.pos, g.picked), pick: J.pos.slice(), level });
+            }
+          frontier = next;
+        }
+      }
+      this.grab = g;
+      this.held = this.chains.map(() => 0);
+      if (g.kind === 1) {
+        this.held[g.chain] = 1;
+        for (const n of g.neighbours) this.held[n.chain] = 1;
+      }
+      return bestT;
+    }
+    release() {
+      this.grab = null;
+      this.held = [];
+    }
+    /** root-fixed reach of a strand toward 'target' (two backward / forward passes over the rest lengths) */
+    _reach(ch, tip, target) {
+      const path = [];
+      for (let k = tip; k >= 0 && path.length <= ch.length; k = ch[k].parent) {
+        path.push(k);
+        if (ch[k].anchored) break;
+      }
+      if (path.length < 2) return;
+      const n = path.length, L = [];
+      for (let i = 0; i + 1 < n; i++) L.push(len(sub(ch[path[i]].anim, ch[path[i + 1]].anim)));
+      const root2 = ch[path[n - 1]].pos;
+      for (let pass = 0; pass < 2; pass++) {
+        ch[path[0]].pos = target.slice();
+        for (let i = 1; i < n - 1; i++) {
+          const a = ch[path[i]], b = ch[path[i - 1]], d = sub(a.pos, b.pos), l = len(d);
+          a.pos = l > 1e-6 ? add(b.pos, scale(d, L[i - 1] / l)) : b.pos.slice();
+        }
+        for (let i = n - 2; i >= 0; i--) {
+          const a = ch[path[i]], base = i + 1 === n - 1 ? root2 : ch[path[i + 1]].pos, d = sub(a.pos, base), l = len(d);
+          a.pos = l > 1e-6 ? add(base, scale(d, L[i] / l)) : base.slice();
+        }
+      }
+      for (let k = 0; k < ch.length; k++) {
+        const c = ch[k];
+        if (c.parent < 0 || c.bone < 0 || k <= tip) continue;
+        let below = false;
+        for (let q = c.parent, guard = 0; q >= 0 && guard <= ch.length; q = ch[q].parent, guard++) if (q === tip) {
+          below = true;
+          break;
+        }
+        if (!below) continue;
+        const p = ch[c.parent];
+        if (p.parent < 0) continue;
+        const pp = ch[p.parent], dir = sub(p.pos, pp.pos), dl = len(dir);
+        if (dl < 1e-6) continue;
+        c.pos = add(p.pos, scale(dir, len(sub(c.anim, p.anim)) / dl));
+      }
+    }
+  };
+
+  // src/tmo.js
+  var ROT4 = 958738e-10;
+  var Motion = class {
+    constructor(buf, name = "") {
+      this.name = name;
+      const v = this.v = new DataView(buf);
+      if (v.getUint32(0, true) !== 829386100) throw new Error(name + ": not a tmo1 file");
+      this.flags = v.getUint16(8, true);
+      this.tScale = v.getFloat32(12, true) || 1;
+      const B = 16, q = (o) => Number(v.getBigUint64(o, true));
+      const ofsMot = q(B + 8);
+      this.ofsHashes = q(B + 40);
+      this.ofsCurves = q(B + 56);
+      this.ofsKeys = q(B + 72);
+      this.keySize = this.flags & 2 ? 16 : this.flags & 1 ? 8 : 4;
+      this.numFrames = v.getInt16(ofsMot, true);
+      this.numTracks = v.getInt16(ofsMot + 2, true);
+      this.firstCurve = v.getUint32(ofsMot + 8, true);
+      this.trackHashes = [];
+      for (let i = 0; i < this.numTracks; i++) this.trackHashes.push(v.getUint32(this.ofsHashes + 4 * i, true));
+      this.trackIndex = /* @__PURE__ */ new Map();
+      this.trackHashes.forEach((h, i) => {
+        if (!this.trackIndex.has(h)) this.trackIndex.set(h, i);
+      });
+      const nc = this.numTracks * 9;
+      this.curves = new Array(nc);
+      for (let c = 0; c < nc; c++) {
+        const o = this.ofsCurves + 16 * (this.firstCurve + c);
+        this.curves[c] = [q(o), v.getUint16(o + 8, true), v.getUint16(o + 12, true)];
+      }
+      this.local = this.trackHashes.map(() => null);
+      this.keyed = this.trackHashes.map((_, t) => this._keyedInfo(t));
+    }
+    _frame(c, j) {
+      return this.v.getUint16(this.ofsKeys + this.keySize * (this.curves[c][0] + j), true);
+    }
+    _value(c, j) {
+      const o = this.ofsKeys + this.keySize * (this.curves[c][0] + j);
+      return this.keySize === 4 ? this.v.getInt16(o + 2, true) : this.v.getFloat32(o + 4, true);
+    }
+    /** index of the last key with frame <= f (0 if none), numKeys-1 from lastFrame on, -1 for an empty curve */
+    _find(c, f) {
+      const [, n, last2] = this.curves[c];
+      if (!n) return -1;
+      if (last2 <= f) return n - 1;
+      let lo = 0, hi = n - 1, r = 0;
+      while (lo <= hi) {
+        const m = lo + hi >> 1;
+        if (this._frame(c, m) <= f) {
+          r = m;
+          lo = m + 1;
+        } else hi = m - 1;
+      }
+      return r;
+    }
+    _sample(c, frame, dflt) {
+      if (this.keySize === 16) {
+        const j2 = this._find(c, Math.floor(frame) & 65535);
+        if (j2 < 0) return dflt;
+        const n = this.curves[c][1];
+        const v0 = this._value(c, j2);
+        if (j2 === n - 1) return v0;
+        const mode = this.v.getUint16(this.ofsKeys + 16 * (this.curves[c][0] + j2) + 2, true) & 15;
+        if (mode !== 2 && mode !== 3) return v0;
+        const f0 = this._frame(c, j2), f1 = this._frame(c, j2 + 1);
+        return v0 + (frame - f0) / (f1 - f0) * (this._value(c, j2 + 1) - v0);
+      }
+      const j = this._find(c, Math.floor(frame) & 65535);
+      return j < 0 ? dflt : this._value(c, j);
+    }
+    /** local matrices of every track at 'frame' -> this.local */
+    sample(frame) {
+      const k4 = this.keySize === 4, sd = k4 ? 100 : 1;
+      for (let t = 0; t < this.numTracks; t++) {
+        const c = 9 * t;
+        const T = [0, 1, 2].map((a) => this._sample(c + a, frame, 0));
+        const R = [0, 1, 2].map((a) => this._sample(c + 3 + a, frame, 0));
+        const S = [0, 1, 2].map((a) => this._sample(c + 6 + a, frame, sd));
+        if (k4) for (let a = 0; a < 3; a++) {
+          T[a] /= this.tScale;
+          R[a] *= ROT4;
+          S[a] *= 0.01;
+        }
+        this.local[t] = composeSRT(T, R, S);
+      }
+      return this.local;
+    }
+    // ---- baked secondary motion (docs 4.7, viewer Motion::KeyedTrack / DrivesJoint)
+    _keyedInfo(t) {
+      const kt = { keys: 0, first: 0, last: 0, rot: [], trans: [] };
+      let lo = 1 << 30, hi = -1;
+      for (let ch = 0; ch < 6; ch++) {
+        const c = 9 * t + ch, n = this.curves[c][1];
+        kt.keys = Math.max(kt.keys, n);
+        if (!n) continue;
+        lo = Math.min(lo, this._frame(c, 0));
+        hi = Math.max(hi, this._frame(c, n - 1));
+        const holds = ch < 3 ? kt.trans : kt.rot;
+        for (let j = 0; j + 1 < n; j++) {
+          const a = this._value(c, j), b = this._value(c, j + 1);
+          if (this.keySize === 4 ? a === b : Math.abs(a - b) <= 1e-5) holds.push([this._frame(c, j), this._frame(c, j + 1)]);
+        }
+      }
+      if (hi >= 0) {
+        kt.first = lo;
+        kt.last = hi;
+      }
+      return kt;
+    }
+    /** sub_140125f00: the physics joint follows the animation at this frame instead of the solver */
+    drivesJoint(h, frame) {
+      const t = this.trackIndex.get(h);
+      if (t === void 0) return false;
+      const k = this.keyed[t];
+      if (!k.keys || !k.last || frame < k.first || frame > k.last) return false;
+      if (!k.rot.length) return true;
+      const inside = (w) => w.some(([a, b]) => a <= frame && frame <= b);
+      return !(inside(k.rot) && inside(k.trans));
+    }
+  };
+  function motionsFromBuffer(buf, fileName) {
+    const v = new DataView(buf);
+    if (buf.byteLength >= 4 && v.getUint32(0, true) === 829386100) return [new Motion(buf, fileName.replace(/\.[^.]*$/, ""))];
+    const out = [];
+    for (const e of parseCat(buf)) {
+      if (e.kind !== "tmo") continue;
+      try {
+        out.push(new Motion(buf.slice(e.offset, e.offset + e.size), e.name));
+      } catch (err) {
+        console.warn(e.name, err.message);
+      }
+    }
+    return out;
+  }
+
+  // src/character.js
+  var pad2 = (n) => String(n).padStart(2, "0");
+  var Library = class {
+    constructor(gd, log2 = console.log) {
+      this.gd = gd;
+      this.log = log2;
+      this.buffers = /* @__PURE__ */ new Map();
+      this.models = /* @__PURE__ */ new Map();
+    }
+    async file(path) {
+      if (!this.buffers.has(path)) this.buffers.set(path, await this.gd.read(path));
+      return this.buffers.get(path);
+    }
+    /** Fnames/E/filename.bin: {u32 1; u32 n; {u32 nameOfs; u32 packed}[n]} + names; entry i = asset id i */
+    async assetName(id) {
+      const fn = await this.file("Fnames/E/filename.bin");
+      if (!fn || fn.byteLength < 8) return "";
+      const v = new DataView(fn), n = v.getUint32(4, true);
+      if (id >= n || 8 + 8 * id + 4 > fn.byteLength) return "";
+      const o = v.getUint32(8 + 8 * id, true), u8 = new Uint8Array(fn);
+      let s = "";
+      for (let k = o; k < u8.length && u8[k]; k++) s += String.fromCharCode(u8[k]);
+      return s.replace(/\\/g, "/");
+    }
+    async assetPath(id, fallback) {
+      return await this.assetName(id) || fallback;
+    }
+    async model(path, want = "") {
+      const key = path + ":" + want;
+      if (!this.models.has(key)) {
+        const buf = await this.file(path);
+        let m = null;
+        if (buf) {
+          try {
+            m = modelFromCat(buf, want);
+          } catch (e) {
+            this.log(path + ": " + e.message);
+          }
+        } else this.log("missing " + path);
+        this.models.set(key, m);
+      }
+      return this.models.get(key);
+    }
+    async textureSet(path) {
+      const buf = await this.file(path);
+      if (!buf) {
+        this.log("missing " + path);
+        return null;
+      }
+      return catTextures(buf, parseCat(buf), 1);
+    }
+  };
+  async function readOutfit(lib, chara) {
+    const buf = await lib.file("Binary/Param/Player/cosinfo.bin");
+    const o = { costume: [chara, 29 + chara], underwear: [chara, chara], hair: [chara, chara, -1], acc: [], accAux: [], braType: () => 0 };
+    if (!buf) {
+      lib.log("no cosinfo.bin: guessing the costume files from the index");
+      return o;
+    }
+    const v = new DataView(buf), nch = v.getUint32(8, true), ncos = v.getUint32(12, true);
+    if (chara >= nch) return o;
+    const r = [];
+    for (let k = 0; k < 28; k++) {
+      const x = v.getUint16(16 + 56 * chara + 2 * k, true);
+      r.push(x === 65535 ? -1 : x);
+    }
+    o.costume = [r[0], r[1]];
+    o.underwear = [r[2], r[3]];
+    o.hair = [r[24], r[25], r[26]];
+    o.acc = r.slice(4, 14);
+    o.accAux = r.slice(14, 24);
+    o.braType = (costume) => {
+      const c = costume % 174, off = 16 + 56 * nch + 8 * c;
+      return c < ncos && off + 4 <= buf.byteLength ? v.getUint32(off, true) : 0;
+    };
+    return o;
+  }
+  function bustVariant(chara, costume) {
+    return chara === 8 || chara === 18 && costume === 0 ? 0 : 1;
+  }
+  async function skirtGroup(lib, costume) {
+    const name = await lib.assetName(4900);
+    const buf = name ? await lib.file(name) : null;
+    if (!buf || buf.byteLength < 8) return -1;
+    const v = new DataView(buf), c = costume % 174, dflt = v.getInt32(0, true), ng = v.getInt32(4, true);
+    let off = 0;
+    for (let g = 0; g < ng; g++) {
+      const b = 8 + off;
+      if (b + 12 > buf.byteLength) break;
+      const idx = v.getInt32(b, true), cnt = v.getInt32(b + 4, true), next = v.getInt32(b + 8, true);
+      for (let k = 0; k < cnt && b + 12 + 8 * k + 8 <= buf.byteLength; k++) {
+        const sub2 = v.getInt32(b + 12 + 8 * k, true), id = v.getInt32(b + 16 + 8 * k, true);
+        if (sub2 === (c >= 29 ? 1 : 0) && id === (c >= 29 ? c - 29 : c)) return idx;
+      }
+      off = next;
+    }
+    return dflt;
+  }
+  function accessoryRef(id) {
+    const r = { record: -1, variant: 0, asset: 0, stem: "" };
+    if (id < 0 || id >= 1500) return r;
+    const kinds = [["acce_head", 40], ["acce_face", 30], ["acce_body", 20], ["acce_arm", 20], ["acce_leg", 20], ["richacce_head", 20], ["richacce_body", 20], ["extacce", 30]];
+    let n = 0;
+    if (id < 1e3) {
+      r.record = id % 200;
+      r.variant = Math.floor(id / 200);
+      r.asset = 3153 + r.variant * 200 + r.record;
+      n = r.record;
+    } else {
+      r.record = 200 + (id - 1e3) % 100;
+      r.variant = Math.floor((id - 1e3) / 100);
+      r.asset = 7801 + r.variant * 100 + r.record - 200;
+    }
+    if (r.record >= 200) {
+      r.stem = `canbadge${pad2(r.record - 200)}_${pad2(r.variant)}`;
+      return r;
+    }
+    for (const [k, c] of kinds) {
+      if (n < c) {
+        r.stem = `${k}${pad2(n)}_${pad2(r.variant)}`;
+        break;
+      }
+      n -= c;
+    }
+    return r;
+  }
+  function layerHidden(model, ls) {
+    const n = model.meshes.length, hidden = new Uint8Array(n), tags = model.meshTags;
+    if (!tags.length) return hidden;
+    const has = (s, t) => s.includes(t);
+    for (let i = 0; i < n; i++) {
+      const s = tags[i];
+      let show = true;
+      if (has(s, "ORIG")) show = ls.original;
+      else if (has(s, "DIFF")) show = !ls.original;
+      if (ls.costumeState >= 0) {
+        if (has(s, "NNJ")) show = show && ls.costumeState === 1;
+        else if (has(s, "UNI")) show = show && ls.costumeState === 0;
+      }
+      if (!show) hidden[i] = 1;
+    }
+    for (let i = 0; i < n; i++) {
+      const s = tags[i];
+      if (!s || !["NTRL", "BRK", "HIN", "BAKU", "ACT", "EVT"].some((t) => has(s, t))) continue;
+      let hide;
+      if (has(s, ls.bigBust ? "HIN" : "BAKU")) hide = true;
+      else if (!has(s, ls.state)) hide = true;
+      else if (has(s, ls.act ? "ACT" : "EVT")) hide = false;
+      else hide = has(s, ls.act ? "EVT" : "ACT");
+      hidden[i] = hide ? 1 : 0;
+    }
+    for (let i = 0; i < n; i++) {
+      if (has(tags[i], "CHG0") && ls.changed) hidden[i] = 1;
+      if (has(tags[i], "CHG1") && !ls.changed) hidden[i] = 1;
+    }
+    return hidden;
+  }
+  function newPose(model) {
+    const world = model.bones.map(() => ident());
+    return {
+      model,
+      world,
+      skin: world.map((w) => w.slice()),
+      meshHidden: new Uint8Array(model.meshes.length),
+      meshOff: new Uint8Array(model.meshes.length),
+      placement: null,
+      textures: model.textures,
+      physics: null
+    };
+  }
+  function computeSkin(p) {
+    const m = p.model, n = Math.min(m.invBind.length, m.numBones);
+    for (let i = 0; i < m.numBones; i++) p.skin[i] = i < n ? mul(m.invBind[i], p.world[i]) : p.world[i];
+  }
+  function calcWorld(p, locals, root2) {
+    const bones = p.model.bones;
+    for (let i = 0; i < bones.length; i++) {
+      const L = locals && locals[i] ? locals[i].slice() : ident();
+      L[12] += bones[i].offset[0];
+      L[13] += bones[i].offset[1];
+      L[14] += bones[i].offset[2];
+      p.world[i] = bones[i].parent >= 0 ? mul(L, p.world[bones[i].parent]) : root2 ? mul(L, root2) : L;
+    }
+  }
+  var Character = class {
+    constructor(lib, index) {
+      this.lib = lib;
+      this.index = index;
+      this.rigs = [null, null];
+      this.active = 1;
+      this.notes = [];
+      this.layer = "NTRL";
+      this.expr = { brow: 0, eye: 0, mouth: 0, open: 0, talk: false };
+      this.overlays = [false, false, false, false, false];
+      this.talkTime = 0;
+      this.faceMotions = [];
+    }
+    async load(progress = () => {
+    }) {
+      const lib = this.lib, ix = this.index;
+      this.name = "pl" + pad2(ix);
+      this.outfit = await readOutfit(lib, ix);
+      progress("face");
+      this.face = await lib.model(`Model/Playable/pl${pad2(ix)}_00/pl${pad2(ix)}_00_H.cat`);
+      const fm = await lib.file(`Motion/Adv/pl${pad2(ix)}_facemot.cat`);
+      if (fm && this.face) {
+        try {
+          for (const m of motionsFromBuffer(fm, "facemot")) {
+            if (!m.trackHashes.some((h) => this.face.findBone(h) >= 0)) continue;
+            m.part = m.name.includes("mouth") ? "mouth" : m.name.includes("eye") ? "eye" : "brow";
+            this.faceMotions.push(m);
+          }
+        } catch (e) {
+          this.note("face motions: " + e.message);
+        }
+      } else if (this.face) this.note(`no Motion/Adv/pl${pad2(ix)}_facemot.cat`);
+      for (const c of [1, 0]) {
+        if (c === 0 && this.outfit.costume[0] === this.outfit.costume[1]) continue;
+        progress(c ? "shinobi costume" : "everyday costume");
+        try {
+          this.rigs[c] = await this.loadRig(c);
+        } catch (e) {
+          this.note(`${c ? "shinobi" : "everyday"} costume: ${e.message}`);
+        }
+      }
+      if (!this.rigs[0] && !this.rigs[1]) throw new Error(this.name + ": no costume could be loaded");
+      this.active = this.rigs[1] ? 1 : 0;
+      const b = this.rigs[this.active].body.model;
+      this.height = Math.max(0.5, b.boundsMax[1] - b.boundsMin[1]);
+    }
+    note(s) {
+      this.notes.push(s);
+      this.lib.log(this.name + ": " + s);
+    }
+    async loadRig(c) {
+      const lib = this.lib, ix = this.index, o = this.outfit, id = o.costume[c];
+      if (id < 0) throw new Error("no costume id");
+      const catPath = await lib.assetPath(973 + id, id < 29 ? `Model/Costume/Uniform/${pad2(id)}_00_H.cat` : `Model/Costume/Ninja/${pad2(id - 29)}_00_H.cat`);
+      const bodyModel = await lib.model(catPath);
+      if (!bodyModel) throw new Error("cannot load " + catPath);
+      const rig = { costume: c, costumeId: id, label: catPath.split("/").slice(-2).join("/"), body: newPose(bodyModel), parts: [], accs: [], boneAdjust: null };
+      rig.bust = bustVariant(ix, c);
+      const scl = await lib.file("Binary/Param/Player/plbodyscl.bin");
+      if (scl) {
+        const v = new DataView(scl), n = v.getUint32(0, true), base = 4 + 4 * n, first = v.getUint32(4, true);
+        const nChara = Math.floor((first - base) / (24 * n)), u8 = new Uint8Array(scl);
+        if (ix < nChara) {
+          rig.boneAdjust = new Array(bodyModel.numBones).fill(null);
+          for (let b = 0; b < n; b++) {
+            const no = v.getUint32(4 + 4 * b, true);
+            let name = "";
+            for (let k = no; u8[k]; k++) name += String.fromCharCode(u8[k]);
+            const val = [];
+            for (let k = 0; k < 6; k++) val.push(v.getFloat32(base + (ix * n + b) * 24 + 4 * k, true));
+            const bi = bodyModel.findBone(hash(name));
+            if (bi >= 0 && !(val[0] === 0 && val[1] === 0 && val[2] === 0 && val[3] === 1 && val[4] === 1 && val[5] === 1)) {
+              const S = ident();
+              S[0] = val[3];
+              S[5] = val[4];
+              S[10] = val[5];
+              S[12] = val[0];
+              S[13] = val[1];
+              S[14] = val[2];
+              rig.boneAdjust[bi] = S;
+            }
+          }
+        }
+      }
+      const hairId = o.hair[c] >= 0 ? o.hair[c] : ix;
+      const hair = await lib.model(`Model/Playable/hr${pad2(hairId)}/hr${pad2(hairId)}_H.cat`);
+      const u = o.underwear[c];
+      let pants = null, bura = null;
+      if (u >= 0) {
+        const swim = u < 120 ? 2913 + u : 7282 + (u - 120);
+        pants = await lib.model(await lib.assetPath(swim, `Model/Costume/Swim/${pad2(Math.floor(u / 20))}_${pad2(u % 20)}_H.cat`));
+        const type = Math.max(0, o.braType(id));
+        const bra = u < 120 ? 2713 + type * 20 + u % 20 : 7202 + type * 20 + (u - 120) % 20;
+        bura = await lib.textureSet(await lib.assetPath(bra, `Model/Costume/Bura/${pad2(type)}_${pad2(u % 20)}_H.cat`));
+      }
+      const face = this.face;
+      rig.body.textures = resolveTextures(bodyModel.textures, [bodyModel.textures, face && face.textures, hair && hair.textures, pants && pants.textures, bura]);
+      const yure = [], coll = [];
+      const add2 = async (yid, fbY, fbC) => {
+        const y = await lib.file(await lib.assetPath(yid, fbY)), col = await lib.file(await lib.assetPath(yid + 501, fbC));
+        if (y) yure.push(y);
+        if (col) coll.push(col);
+      };
+      if (id < 29) await add2(5008 + id, `Binary/physics/Uniform/yure_unicos_${pad2(id)}.bin`, `Binary/physics/Uniform/collision_unicos_${pad2(id)}.bin`);
+      else await add2(5059 + id - 29, `Binary/physics/Ninja/yure_ninjacos_${pad2(id - 29)}.bin`, `Binary/physics/Ninja/collision_ninjacos_${pad2(id - 29)}.bin`);
+      const group = await skirtGroup(lib, id);
+      if (group >= 0) await add2(4903 + group, "", "");
+      await add2(4908 + hairId, `Binary/physics/hr/yure_hr_${pad2(hairId)}.bin`, `Binary/physics/hr/collision_hr_${pad2(hairId)}.bin`);
+      const bustBuf = await lib.file(await lib.assetPath(4902, "Binary/physics/BustInfo.bin"));
+      const ph = new Physics(rig.body);
+      for (const y of yure) ph.addYure(y, true);
+      for (const col of coll) ph.addCollision(col);
+      ph.setupBust(bustBuf ? bustParams(bustBuf, id) : null);
+      rig.body.physics = ph.active ? ph : null;
+      rig.collisions = coll;
+      const head = bodyModel.findBone(hash("head"));
+      for (const [part, bone, kind] of [[face, head, "face"], [hair, head, "hair"], [pants, 0, "pants"]]) {
+        if (!part) continue;
+        const p = newPose(part);
+        p.kind = kind;
+        p.parentBone = bone < 0 ? 0 : bone;
+        p.bodyBone = part.bones.map((b) => bodyModel.findBone(b.hash));
+        if (kind === "face") {
+          for (let k = 2; k < part.meshes.length && k <= 6; k++) p.meshOff[k] = this.overlays[k - 2] ? 0 : 1;
+          p.faceTracks = part.bones.map((b) => {
+            let hit = null;
+            for (let mi = 0; mi < this.faceMotions.length; mi++) {
+              const t = this.faceMotions[mi].trackIndex.get(b.hash);
+              if (t !== void 0) hit = [mi, t];
+            }
+            return hit;
+          });
+        }
+        p.textures = resolveTextures(part.textures, [part.textures, face && face.textures, hair && hair.textures]);
+        if (kind === "pants") {
+          const tights = rig.body.textures.find((t) => t.hash === hash("tights00_00_EE"));
+          if (tights) p.textures = p.textures.map((t) => t.hash === hash("swim_blend00_EE") ? { ...tights, hash: t.hash } : t);
+        }
+        const pp = new Physics(p);
+        for (const y of yure) pp.addYure(y, true);
+        for (const col of coll) pp.addCollision(col, rig.body);
+        p.physics = pp.active ? pp : null;
+        rig.parts.push(p);
+      }
+      if (ix === 16) await this.attachHairWeapon(rig, yure, coll);
+      await this.attachAccessories(rig, c);
+      this.applyLayer(rig);
+      return rig;
+    }
+    /** pl16's back hair is her weapon (Model/Playable/wpn16, weaponinfo.bin slots 0 and 2): the only weapon models
+     *  drawn here (the game's weapon hide, 0x1400153c6, skips her), at rest on the slot bone */
+    async attachHairWeapon(rig, yure, coll) {
+      const lib = this.lib, ix = this.index;
+      const info = await lib.file("Binary/Param/Player/weaponinfo.bin");
+      if (!info || info.byteLength < 10080) return;
+      const v = new DataView(info), u8 = new Uint8Array(info), names = 35 * 8 * 16, lists = names + 35 * 8 * 4;
+      for (let k = 0; k < 8; k++) {
+        let bone = "";
+        for (let i = 0; i < 16 && u8[(ix * 8 + k) * 16 + i]; i++) bone += String.fromCharCode(u8[(ix * 8 + k) * 16 + i]);
+        if (k !== 0 && k !== 2) continue;
+        if (!bone || !v.getInt32(names + (ix * 8 + k) * 4, true)) continue;
+        const model = await lib.model(`Model/Playable/wpn${pad2(ix)}/wpn${pad2(ix)}_H.cat`, `pl${pad2(ix)}_weapon${pad2(k)}`);
+        const bi = rig.body.model.findBone(hash(bone));
+        if (!model || bi < 0) continue;
+        const p = newPose(model);
+        p.kind = "weapon";
+        p.parentBone = bi;
+        p.bodyBone = model.bones.map(() => -1);
+        for (let j = 0; j < 8; j++) {
+          const mi = v.getInt16(lists + ((ix * 8 + k) * 8 + j) * 2, true);
+          if (mi >= 0 && mi < model.meshes.length) p.meshOff[mi] = 1;
+        }
+        p.textures = resolveTextures(model.textures, [model.textures, this.face && this.face.textures, ...rig.parts.filter((q) => q.kind === "hair").map((q) => q.model.textures)]);
+        const pp = new Physics(p);
+        for (const y of yure) pp.addYure(y, true);
+        for (const col of coll) pp.addCollision(col, rig.body);
+        p.physics = pp.active ? pp : null;
+        rig.parts.push(p);
+      }
+    }
+    async attachAccessories(rig, c) {
+      const lib = this.lib, o = this.outfit;
+      const offs = await lib.file("Binary/Param/Player/accoffset.bin");
+      for (let k = 0; k < o.acc.length; k++) {
+        const id = o.acc[k];
+        if (id < 0) continue;
+        const aux = o.accAux[k];
+        if (aux === 0 && c !== 0 || aux === 1 && c !== 1) continue;
+        const ref = accessoryRef(id);
+        if (ref.record < 0) continue;
+        const model = await lib.model(await lib.assetPath(ref.asset, `Model/Acc/${ref.stem}.cat`));
+        if (!model) continue;
+        let off = [0, 0, 0], rot = [0, 0, 0], bone = "head";
+        if (offs && 4 + 48 * (ref.record + 1) <= offs.byteLength) {
+          const v = new DataView(offs), b = 4 + 48 * ref.record, u8 = new Uint8Array(offs);
+          off = [0, 1, 2].map((i) => v.getFloat32(b + 4 * i, true));
+          rot = [0, 1, 2].map((i) => v.getFloat32(b + 12 + 4 * i, true));
+          bone = "";
+          for (let i = 0; i < 16 && u8[b + 32 + i]; i++) bone += String.fromCharCode(u8[b + 32 + i]);
+          bone = bone.trim();
+        }
+        const bi = rig.body.model.findBone(hash(bone));
+        if (bi < 0) {
+          this.note(`accessory ${ref.stem}: no bone ${bone}`);
+          continue;
+        }
+        const d2r = Math.PI / 180;
+        const a = newPose(model);
+        a.attachBone = bi;
+        a.local = mul(eulerXYZ(rot[0] * d2r, rot[1] * d2r, rot[2] * d2r), translation(off[0], off[1], off[2]));
+        if (model.numBones > 0) {
+          const y = await lib.file(`Binary/physics/Acc/yure_${ref.stem}.bin`);
+          if (y) {
+            const ph = new Physics(a);
+            ph.addYure(y, true);
+            const col = await lib.file(`Binary/physics/Acc/collision_${ref.stem}.bin`);
+            if (col) ph.addCollision(col, rig.body);
+            for (const cb of rig.collisions) ph.addCollision(cb, rig.body);
+            a.physics = ph.active ? ph : null;
+          }
+        }
+        rig.accs.push(a);
+      }
+    }
+    /** number of 30-frame expression blocks of a face motion part ('brow' | 'eye' | 'mouth'), 0 if none */
+    exprCount(part) {
+      const m = this.faceMotions.find((x) => x.part === part);
+      return m ? Math.floor((m.numFrames - 1) / 30) + 1 : 0;
+    }
+    setOverlay(k, on) {
+      this.overlays[k] = on;
+      for (const r of this.rigs) if (r) {
+        for (const p of r.parts) if (p.kind === "face" && k + 2 < p.meshOff.length) p.meshOff[k + 2] = on ? 0 : 1;
+      }
+    }
+    setLayer(state2) {
+      this.layer = state2;
+      for (const r of this.rigs) if (r) this.applyLayer(r);
+    }
+    applyLayer(rig) {
+      const ls = { state: this.layer, bigBust: rig.bust !== 0, act: true, changed: false, costumeState: rig.costume, original: true };
+      for (const p of [rig.body, ...rig.parts]) p.meshHidden = layerHidden(p.model, ls);
+    }
+    get rig() {
+      return this.rigs[this.active];
+    }
+    hasCostume(c) {
+      return !!this.rigs[c];
+    }
+    setCostume(c) {
+      if (!this.rigs[c] || c === this.active) return false;
+      this.active = c;
+      this.resetPhysics();
+      return true;
+    }
+    resetPhysics() {
+      const r = this.rig;
+      for (const p of [r.body, ...r.parts, ...r.accs]) if (p.physics) {
+        p.physics.reset();
+        p.physics.release();
+      }
+    }
+    /** every physics object of the active costume (for touching): body first */
+    physicsList() {
+      const r = this.rig;
+      return [r.body, ...r.parts, ...r.accs].map((p) => p.physics).filter(Boolean);
+    }
+    /** poses the active costume: motion at 'frame' (cross-faded from blend.motion), then physics (dt seconds) */
+    evaluate(motion, frame, blend, dt, physicsOn) {
+      const r = this.rig, body = r.body, m = body.model;
+      const locals = new Array(m.numBones).fill(null);
+      if (motion) {
+        const L = motion.sample(frame);
+        for (let i = 0; i < m.numBones; i++) {
+          const t = motion.trackIndex.get(m.bones[i].hash);
+          if (t !== void 0) locals[i] = L[t];
+        }
+      }
+      if (blend && blend.motion && blend.weight > 0) {
+        const L = blend.motion.sample(blend.frame), w = Math.min(1, blend.weight);
+        for (let i = 0; i < m.numBones; i++) {
+          const t = blend.motion.trackIndex.get(m.bones[i].hash);
+          if (t === void 0) continue;
+          if (locals[i]) locals[i] = blendLocal(locals[i], L[t], w);
+          else if (w > 0.5) locals[i] = L[t];
+        }
+        if (motion === blend.motion) motion.sample(frame);
+      }
+      if (r.boneAdjust) {
+        for (let i = 0; i < m.numBones; i++) if (r.boneAdjust[i]) locals[i] = mul(r.boneAdjust[i], locals[i] || ident());
+      }
+      calcWorld(body, locals, null);
+      if (body.physics) {
+        body.physics.enabled = physicsOn;
+        body.physics.drive = motion;
+        body.physics.driveFrame = frame;
+        if (physicsOn) body.physics.apply(dt);
+      }
+      computeSkin(body);
+      this.talkTime += dt;
+      const faceLocal = this.faceMotions.map((fm) => {
+        const e = this.expr;
+        let f = 30 * (e[fm.part] || 0);
+        if (fm.part === "mouth") f += e.talk ? 10 - 10 * Math.cos(this.talkTime * 14) : e.open;
+        return fm.sample(Math.min(Math.max(0, f), fm.numFrames - 1)).map((m2) => m2.slice());
+      });
+      for (const p of r.parts) {
+        const pm = p.model;
+        for (let i = 0; i < pm.numBones; i++) {
+          const ft = p.faceTracks && p.faceTracks[i];
+          if (!ft && p.bodyBone[i] >= 0) {
+            p.world[i] = body.world[p.bodyBone[i]];
+            continue;
+          }
+          const b = pm.bones[i], L = ft ? faceLocal[ft[0]][ft[1]].slice() : ident();
+          L[12] += b.offset[0];
+          L[13] += b.offset[1];
+          L[14] += b.offset[2];
+          p.world[i] = mul(L, b.parent >= 0 ? p.world[b.parent] : body.world[p.parentBone]);
+        }
+        if (p.physics) {
+          p.physics.enabled = physicsOn;
+          p.physics.drive = null;
+          if (physicsOn) p.physics.apply(dt);
+        }
+        computeSkin(p);
+      }
+      for (const a of r.accs) {
+        const attach = mul(a.local, body.world[a.attachBone]);
+        if (a.model.numBones === 0) {
+          a.placement = attach;
+          continue;
+        }
+        calcWorld(a, null, attach);
+        if (a.physics) {
+          a.physics.enabled = physicsOn;
+          if (physicsOn) a.physics.apply(dt);
+        }
+        computeSkin(a);
+      }
+    }
+    /** everything drawn for the active costume */
+    drawList() {
+      const r = this.rig;
+      return [r.body, ...r.parts, ...r.accs];
+    }
+  };
+  function bodyMotions(motions, bodyModel) {
+    return motions.filter((mo) => {
+      if (!mo.numTracks) return false;
+      let hit = 0;
+      for (const h of mo.trackHashes) if (bodyModel.findBone(h) >= 0) hit++;
+      return 2 * hit >= mo.numTracks;
+    });
+  }
+
+  // src/render.js
+  var VS = `precision highp float; precision highp int; precision highp sampler2D;
+in vec3 aPos; in vec4 aWeights; in vec4 aIdx; in vec3 aNormal; in vec4 aColor; in vec2 aUV;
+in vec3 aTangent; in vec3 aBinormal; in vec2 aUV1;
+uniform mat4 projectionMatrix, viewMatrix;
+uniform mat4 uMesh;
+uniform sampler2D uBones, uT5;
+uniform vec4 uParam[8];
+uniform int uSkinned, uShader;
+uniform vec3 uLightDir, uEyeDir, uToonLight;
+out vec3 vNormal; out vec3 vWorld; out vec4 vColor; out vec2 vUV; out vec2 vUV1;
+out vec3 vLts; out vec3 vEts; out vec3 vClip; out vec3 vHeadClip;
+out vec2 vBreakUV; out float vHeight; out vec2 vHeightUV;
+mat4 bone(float i) {
+  int b = int(i + 0.5) * 4;
+  return mat4(texelFetch(uBones, ivec2(b, 0), 0), texelFetch(uBones, ivec2(b + 1, 0), 0),
+              texelFetch(uBones, ivec2(b + 2, 0), 0), texelFetch(uBones, ivec2(b + 3, 0), 0));
+}
+void main() {
+  mat4 S = mat4(1.0);
+  if (uSkinned != 0) {
+    float sum = dot(aWeights, vec4(1.0));
+    vec4 w = sum > 0.0 ? aWeights / sum : vec4(1.0, 0.0, 0.0, 0.0);
+    S = bone(aIdx.x) * w.x + bone(aIdx.y) * w.y + bone(aIdx.z) * w.z + bone(aIdx.w) * w.w;
+  }
+  vec4 world = uMesh * (S * vec4(aPos, 1.0));
+  mat3 M = mat3(uMesh) * mat3(S);
+  vec3 N = normalize(M * aNormal), T = normalize(M * aTangent), B = normalize(M * aBinormal);
+  vWorld = world.xyz; vNormal = N; vColor = aColor; vUV = aUV; vUV1 = aUV1;
+  vec3 L = -uLightDir, E = -uEyeDir;
+  vLts = vec3(dot(L, T), dot(L, B), dot(L, N));
+  if (uShader == 3) vLts = vec3(dot(uToonLight, aTangent), dot(uToonLight, aBinormal), dot(uToonLight, aNormal));
+  vEts = vec3(dot(E, T), dot(E, B), dot(E, N));
+  // CSBB: the break threshold scrolls with m_Param[2].x (channel 8, keyframed break progress); uv1.y = piece delay
+  vHeightUV = vec2(aUV1.x, 2.0 - aUV1.y + uParam[2].x);
+  vHeight = uShader == 5 ? textureLod(uT5, vec2(vHeightUV.x, clamp(vHeightUV.y, 1.0 / 64.0, 1.0 - 1.0 / 64.0)), 1.0).r : 0.0;
+  vBreakUV = aUV1 - vec2(0.0, 1.0);
+  mat4 VP = projectionMatrix * viewMatrix;
+  gl_Position = VP * world;
+  vClip = gl_Position.xyz;
+  vHeadClip = (VP * (uMesh * (S * vec4(0.0, 0.162, -0.05, 1.0)))).xyz;
+}`;
+  var FS = `precision highp float; precision highp int; precision highp sampler2D;
+in vec3 vNormal; in vec3 vWorld; in vec4 vColor; in vec2 vUV; in vec2 vUV1;
+in vec3 vLts; in vec3 vEts; in vec3 vClip; in vec3 vHeadClip;
+in vec2 vBreakUV; in float vHeight; in vec2 vHeightUV;
+uniform int uShader, uSwim, uBlend, uTextured;
+uniform vec4 uParam[8];
+uniform vec4 uRim;
+uniform vec4 uChara;
+uniform vec3 uEyeDir;
+uniform sampler2D uT0, uT1, uT2, uT5, uT6;
+out vec4 oColor;
+float ch(int k) { return uParam[k / 4][k % 4]; }
+float hl(vec3 a, vec3 b) { return max((dot(a, b) + 1.0) * 0.5, 0.0); }
+float lpow(float x, float e) { return exp(log(max(x, 1e-8)) * e); }
+vec3 Ramp(float t) {            // ToonShadowSampler: the colour texture's top texel row
+  vec2 sz = vec2(textureSize(uT0, 0));
+  vec4 r = textureLod(uT0, vec2(clamp(t, 0.5 / sz.x, 1.0 - 0.5 / sz.x), 0.5 / sz.y), 0.0);
+  if (uSwim == 0) return r.rgb;
+  vec4 b = textureLod(uT2, vec2(t, 0.0), 0.0);
+  return r.rgb * (1.0 - b.a) + b.rgb * r.a;
+}
+vec3 SwimBlend(vec4 c) {        // CSW0 / CSWB: t2 (tights00_00_EE or swim_blend00_EE) over the colour
+  if (uSwim == 0) return c.rgb;
+  vec4 b = texture(uT2, vUV);
+  return c.rgb * (1.0 - b.a) + b.rgb * c.a;
+}
+vec3 Shade(vec3 col, float t, vec3 tint, float strength, float saturation) {
+  vec3 r = Ramp(t) * tint;
+  float lum = dot(vec3(0.299, 0.587, 0.114), r);
+  return col - mix(vec3(lum), r, saturation) * strength;
+}
+void main() {
+  if (uShader == 0) {           // plain lit (materials without a ported shader)
+    vec4 tex = uTextured != 0 ? texture(uT0, vUV) : vec4(0.8, 0.8, 0.8, 1.0);
+    if (tex.a < 0.5) discard;
+    vec3 n = normalize(vNormal);
+    float d1 = abs(dot(n, normalize(vec3(0.4, 0.8, -0.45)))), d2 = abs(dot(n, normalize(vec3(-0.6, 0.2, 0.7))));
+    oColor = vec4(tex.rgb * vColor.rgb * (0.55 + 0.4 * d1 + 0.15 * d2), 1.0);
+    return;
+  }
+  vec3 N = normalize(vNormal);
+  vec3 V = -normalize(uEyeDir);
+  float rim = lpow(1.0 - abs(dot(N, V)), uRim.w);
+  vec3 n = normalize(texture(uT1, vUV).xyz * 2.0 - 1.0);
+  vec3 L = normalize(vLts);
+  if (uShader == 4) {           // HRH0: highlights from the clip-space direction head point -> pixel
+    vec4 c = texture(uT0, vUV);
+    vec3 col = c.rgb + uRim.rgb * rim;
+    vec3 dv = vClip - vHeadClip;
+    dv.xy += ch(17) * 0.01;
+    dv = normalize(dv);
+    float up = 1.0 - dv.y;
+    vec2 q = normalize(vec2(up * up * up, dv.z));
+    float lg = log(max(dot(q, vec2(0.707107, -0.707107)), 1e-30));
+    float mask = vColor.r;
+    float sheen = exp(lg * ch(13)) * ch(14) * mask;
+    col = col * (1.0 - sheen) + sheen * vec3(ch(10), ch(11), ch(12));
+    col += exp(lg * ch(9)) * vec3(ch(6), ch(7), ch(8)) * mask;
+    float t = lpow(hl(L, n), ch(16));
+    col -= Ramp(t) * vec3(ch(1), ch(2), ch(3)) * ch(0);
+    oColor = vec4(col, uBlend != 0 ? c.a : 1.0);
+    return;
+  }
+  if (uShader == 5) {           // CSBB (breakable costume): pieces burn away where the break map falls below the height
+    float brk = texture(uT6, vBreakUV).r;
+    if (brk - vHeight < 0.0) discard;
+    vec4 cb = texture(uT0, vUV);
+    if (cb.a < 0.5) discard;
+    vec3 colb = SwimBlend(cb) + uRim.rgb * rim;
+    float tb = lpow(hl(L, n), ch(6));
+    colb = Shade(colb, tb, vec3(ch(1), ch(2), ch(3)), ch(0), ch(25));
+    vec3 h2 = texture(uT5, vec2(vHeightUV.x, clamp(2.0 - vHeightUV.y, 1.0 / 128.0, 1.0 - 1.0 / 128.0))).rgb;
+    colb += max((brk - h2) * 4.0, 0.0) * vec3(ch(26), ch(27), ch(28));   // burning edge
+    oColor = vec4(colb, 1.0);
+    return;
+  }
+  vec4 c = texture(uT0, vUV);
+  vec3 base = SwimBlend(c);
+  if (c.a < 0.5) discard;
+  vec3 col = base + uRim.rgb * rim;
+  vec3 E = normalize(vEts);
+  float lg = log(max(hl(E, n), 1e-8)) * ch(16);
+  float mask = vColor.r;
+  float sheen = exp(lg * ch(13)) * ch(14) * mask;
+  col = col * (1.0 - sheen) + sheen * vec3(ch(10), ch(11), ch(12));
+  col += exp(lg * ch(9)) * vec3(ch(6), ch(7), ch(8)) * mask;
+  vec4 o = vec4(col, c.a);
+  if (uShader == 1) o *= 1.0 + uChara.x * vec4(-0.196078, -0.0980392, -0.0745098, 0.0);
+  o.rgb += exp(lg * ch(19)) * uChara.x * ch(18);
+  float t = lpow(hl(L, n), ch(16));
+  o.rgb = Shade(o.rgb, t, vec3(ch(1), ch(2), ch(3)), ch(0), ch(20));
+  oColor = vec4(o.rgb, uBlend != 0 ? c.a : 1.0);
+}`;
+  var OVS = `precision highp float; precision highp int; precision highp sampler2D;
+in vec3 aPos; in vec4 aWeights; in vec4 aIdx; in vec3 aNormal; in vec2 aUV; in vec2 aUV1;
+uniform mat4 projectionMatrix, viewMatrix;
+uniform mat4 uMesh;
+uniform sampler2D uBones, uT0, uT5;
+uniform vec4 uParam[8];
+uniform int uSkinned, uBreak;
+uniform float uOutline;
+out vec4 vColor; out vec2 vBreakUV; out float vHeight;
+mat4 bone(float i) {
+  int b = int(i + 0.5) * 4;
+  return mat4(texelFetch(uBones, ivec2(b, 0), 0), texelFetch(uBones, ivec2(b + 1, 0), 0),
+              texelFetch(uBones, ivec2(b + 2, 0), 0), texelFetch(uBones, ivec2(b + 3, 0), 0));
+}
+void main() {
+  mat4 S = mat4(1.0);
+  if (uSkinned != 0) {
+    float sum = dot(aWeights, vec4(1.0));
+    vec4 w = sum > 0.0 ? aWeights / sum : vec4(1.0, 0.0, 0.0, 0.0);
+    S = bone(aIdx.x) * w.x + bone(aIdx.y) * w.y + bone(aIdx.z) * w.z + bone(aIdx.w) * w.w;
+  }
+  vec4 world = uMesh * (S * vec4(aPos, 1.0));
+  vec3 N = normalize(mat3(uMesh) * (mat3(S) * aNormal));
+  vec4 c = textureLod(uT0, aUV, 0.0);
+  vColor = c * vec4(1.0, 1.0, 1.0, 0.5);
+  world.xyz += N * (0.007 * c.a * 0.5) * uOutline;
+  vBreakUV = aUV1 - vec2(0.0, 1.0);
+  vHeight = uBreak != 0 ? textureLod(uT5, vec2(aUV1.x, clamp(2.0 - aUV1.y + uParam[2].x, 1.0 / 64.0, 1.0 - 1.0 / 64.0)), 1.0).r : 0.0;
+  gl_Position = projectionMatrix * viewMatrix * world;
+}`;
+  var OFS = `precision highp float; precision highp int;
+in vec4 vColor; in vec2 vBreakUV; in float vHeight;
+uniform vec4 uParam[8];
+uniform int uBreak;
+uniform sampler2D uT6;
+out vec4 oColor;
+void main() {
+  if (uParam[3].w >= vColor.a) discard;   // ch15
+  if (uBreak != 0 && texture(uT6, vBreakUV).r - vHeight < 0.0) discard;
+  oColor = vec4(vColor.rgb, 1.0);
+}`;
+  var shared = {
+    uLightDir: { value: new THREE.Vector3(-0.35, -0.55, -0.76).normalize() },
+    // m_LightDirection (travel direction)
+    uEyeDir: { value: new THREE.Vector3(0, 0, -1) },
+    // camera forward
+    uToonLight: { value: new THREE.Vector3(0.25, 0.4, 0.88).normalize() },
+    // SKF0 m_ToonLightDir (face space)
+    uRim: { value: new THREE.Vector4(0.25, 0.25, 0.25, 4) },
+    // m_RimParam
+    uChara: { value: new THREE.Vector4(0, 0, 0, 0) },
+    // m_CharaParameter (x = wetness)
+    uOutline: { value: 1 }
+  };
+  var black = null;
+  var identityBones = null;
+  var texCache = /* @__PURE__ */ new WeakMap();
+  function initShared() {
+    if (black) return;
+    black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat);
+    black.needsUpdate = true;
+    identityBones = boneTexture(1);
+    identityBones.image.data.set([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+    identityBones.needsUpdate = true;
+  }
+  function boneTexture(n) {
+    const t = new THREE.DataTexture(new Float32Array(Math.max(1, n) * 16), Math.max(1, n) * 4, 1, THREE.RGBAFormat, THREE.FloatType);
+    t.minFilter = t.magFilter = THREE.NearestFilter;
+    t.generateMipmaps = false;
+    t.needsUpdate = true;
+    return t;
+  }
+  function gpuTexture(t) {
+    if (!t) return black;
+    let g = texCache.get(t);
+    if (!g) {
+      g = new THREE.DataTexture(t.rgba, t.width, t.height, THREE.RGBAFormat);
+      g.wrapS = g.wrapT = THREE.RepeatWrapping;
+      g.magFilter = THREE.LinearFilter;
+      g.minFilter = THREE.LinearMipmapLinearFilter;
+      g.generateMipmaps = true;
+      g.flipY = false;
+      g.anisotropy = 8;
+      g.needsUpdate = true;
+      texCache.set(t, g);
+    }
+    return g;
+  }
+  function materialInfo(model, textures, mi) {
+    const mat = model.materials[mi];
+    const raw = mat.fourcc;
+    let cc = raw;
+    if (cc[3] === "2") cc = cc.slice(0, 3) + "0";
+    else if (cc[3] === "3") cc = cc.slice(0, 3) + "1";
+    let kind = 0;
+    const face = model.name.includes("face");
+    if (cc === "SKC0" || cc === "SKF0") kind = face ? 3 : 2;
+    else if (cc === "HRH0" || cc === "HRL0") kind = 4;
+    else if (cc === "CSBB" || cc === "CSWB") kind = 5;
+    else if (cc.startsWith("CS") || cc === "EN00") kind = 1;
+    if (!model.uv0 || !model.normal || !model.tangent) kind = 0;
+    const tex = [];
+    for (let k = 0; k < 7; k++) {
+      const s = mat.slots[k];
+      const i = s && model.uv0 ? model.findTexture(s.hash) : -1;
+      tex.push(i >= 0 ? textures[i] : null);
+    }
+    const swim = cc.startsWith("CSW");
+    if (cc === "CSWB") {
+      tex[5] = tex[3];
+      tex[6] = tex[4];
+      tex[3] = tex[4] = null;
+    }
+    let outline = null;
+    if (kind && tex[0]) {
+      let n = tex[0].name;
+      n = n.endsWith("_EE") ? n.slice(0, -3) + "_outline_EE" : n + "_outline";
+      const i = textures.findIndex((t) => t.name === n);
+      outline = i >= 0 ? textures[i] : null;
+      if (["CSBB", "CSWB", "CSW0", "CSTB", "CSHB", "CSHT"].includes(cc)) outline = null;
+    }
+    return { kind, blend: raw[3] === "2" || raw[3] === "3", swim, tex, outline };
+  }
+  function buildGeometry(model, group, palette) {
+    const src = model.groups[group], map = /* @__PURE__ */ new Map(), verts = [];
+    const index = new Uint32Array(src.length);
+    for (let k = 0; k < src.length; k++) {
+      let j = map.get(src[k]);
+      if (j === void 0) {
+        j = verts.length;
+        map.set(src[k], j);
+        verts.push(src[k]);
+      }
+      index[k] = j;
+    }
+    const n = verts.length, g = new THREE.BufferGeometry();
+    const take = (arr, w, dflt) => {
+      const out = new Float32Array(n * w);
+      for (let i = 0; i < n; i++) for (let c = 0; c < w; c++) out[i * w + c] = arr ? arr[verts[i] * w + c] : dflt[c];
+      return out;
+    };
+    const pos = new THREE.BufferAttribute(take(model.pos, 3), 3);
+    g.setAttribute("aPos", pos);
+    g.setAttribute("position", pos);
+    g.setAttribute("aNormal", new THREE.BufferAttribute(take(model.normal, 3, [0, 1, 0]), 3));
+    g.setAttribute("aTangent", new THREE.BufferAttribute(take(model.tangent, 3, [1, 0, 0]), 3));
+    g.setAttribute("aBinormal", new THREE.BufferAttribute(take(model.binormal, 3, [0, 1, 0]), 3));
+    g.setAttribute("aUV", new THREE.BufferAttribute(take(model.uv0, 2, [0, 0]), 2));
+    g.setAttribute("aUV1", new THREE.BufferAttribute(take(model.uv1, 2, [0, 0]), 2));
+    g.setAttribute("aColor", new THREE.BufferAttribute(take(model.color, 4, [1, 1, 1, 1]), 4));
+    g.setAttribute("aWeights", new THREE.BufferAttribute(take(model.weights, 4, [1, 0, 0, 0]), 4));
+    const idx = new Float32Array(n * 4);
+    if (model.indices)
+      for (let i = 0; i < n; i++)
+        for (let c = 0; c < 4; c++) {
+          const local = model.indices[verts[i] * 4 + c];
+          const b = palette ? local < palette.length ? palette[local] : 0 : local;
+          idx[i * 4 + c] = b < model.numBones ? b : 0;
+        }
+    g.setAttribute("aIdx", new THREE.BufferAttribute(idx, 4));
+    g.setIndex(new THREE.BufferAttribute(index, 1));
+    return g;
+  }
+  var ModelView = class {
+    constructor(pose) {
+      initShared();
+      this.pose = pose;
+      const m = this.model = pose.model;
+      this.group = new THREE.Group();
+      this.skinned = !!(m.weights && m.numBones > 0);
+      this.bones = this.skinned ? boneTexture(m.numBones) : identityBones;
+      this.params = m.materials.map(() => [0, 1, 2, 3, 4, 5, 6, 7].map(() => new THREE.Vector4()));
+      this.meshUniforms = m.meshes.map(() => ({ value: new THREE.Matrix4() }));
+      this.infos = m.materials.map((_, i) => materialInfo(m, pose.textures, i));
+      this.draws = [];
+      const geoms = /* @__PURE__ */ new Map();
+      m.meshes.forEach((mesh, mi) => {
+        let material = -1, palette = null;
+        for (const [type, arg] of mesh.cmds) {
+          if (type === 2 || type === 5 || type === 6) {
+            material = arg;
+            continue;
+          }
+          if (type === 4) {
+            if (this.skinned && m.skinned && m.skinBatches[arg]) palette = m.skinBatches[arg];
+            continue;
+          }
+          if (type !== 3 || arg >= m.groups.length || !m.groups[arg].length) continue;
+          const key = arg + ":" + (palette ? m.skinBatches.indexOf(palette) : -1);
+          let geom = geoms.get(key);
+          if (!geom) {
+            geom = buildGeometry(m, arg, palette);
+            geoms.set(key, geom);
+          }
+          const info = material >= 0 ? this.infos[material] : { kind: 0, tex: [], blend: false, swim: false, outline: null };
+          const objs = [];
+          const main = new THREE.Mesh(geom, this._material(info, material, mi, false));
+          main.renderOrder = info.blend ? 1 : 0;
+          objs.push(main);
+          if (info.outline && info.kind) {
+            const ol = new THREE.Mesh(geom, this._material(info, material, mi, true));
+            ol.renderOrder = 2;
+            objs.push(ol);
+          }
+          for (const o of objs) {
+            o.frustumCulled = false;
+            this.group.add(o);
+          }
+          this.draws.push({ mesh: mi, objs });
+        }
+      });
+    }
+    _material(info, material, mi, outline) {
+      const u = {
+        uMesh: this.meshUniforms[mi],
+        uBones: { value: this.bones },
+        uSkinned: { value: this.skinned ? 1 : 0 },
+        uParam: { value: material >= 0 ? this.params[material] : this.params[0] || [0, 1, 2, 3, 4, 5, 6, 7].map(() => new THREE.Vector4()) }
+      };
+      if (outline) {
+        Object.assign(u, {
+          uT0: { value: gpuTexture(info.outline) },
+          uT5: { value: gpuTexture(info.tex[5]) },
+          uT6: { value: gpuTexture(info.tex[6]) },
+          uBreak: { value: info.kind === 5 ? 1 : 0 },
+          uOutline: shared.uOutline
+        });
+        return new THREE.RawShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: OVS, fragmentShader: OFS, uniforms: u, side: THREE.BackSide });
+      }
+      Object.assign(u, {
+        uShader: { value: info.kind },
+        uSwim: { value: info.swim ? 1 : 0 },
+        uBlend: { value: info.blend ? 1 : 0 },
+        uTextured: { value: info.tex[0] ? 1 : 0 },
+        uT0: { value: gpuTexture(info.tex[0]) },
+        uT1: { value: gpuTexture(info.tex[1]) },
+        uT2: { value: gpuTexture(info.tex[2]) },
+        uT5: { value: gpuTexture(info.tex[5]) },
+        uT6: { value: gpuTexture(info.tex[6]) },
+        uLightDir: shared.uLightDir,
+        uEyeDir: shared.uEyeDir,
+        uToonLight: shared.uToonLight,
+        uRim: shared.uRim,
+        uChara: shared.uChara
+      });
+      const mat = new THREE.RawShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: VS, fragmentShader: FS, uniforms: u, side: THREE.DoubleSide });
+      if (info.blend) {
+        mat.transparent = true;
+        mat.depthWrite = false;
+      }
+      return mat;
+    }
+    /** pushes the pose (skin matrices, mesh visibility, material channels at 'matFrame') to the GPU objects */
+    update(matFrame = 0) {
+      const p = this.pose, m = this.model;
+      if (this.skinned) {
+        const d = this.bones.image.data;
+        for (let i = 0; i < m.numBones; i++) d.set(p.skin[i], i * 16);
+        this.bones.needsUpdate = true;
+      }
+      const ch = new Float32Array(32);
+      m.materials.forEach((_, i) => {
+        m.materialParams(i, matFrame, ch);
+        const P = this.params[i];
+        for (let k = 0; k < 8; k++) P[k].set(ch[k * 4], ch[k * 4 + 1], ch[k * 4 + 2], ch[k * 4 + 3]);
+      });
+      const vis = m.meshes.map((_, mi) => {
+        if (p.meshHidden[mi] || p.meshOff[mi]) return false;
+        const { matrix, visible } = m.meshMatrix(mi, matFrame);
+        let M = matrix;
+        if (p.placement) M = M ? mulRow(M, p.placement) : p.placement;
+        if (M) this.meshUniforms[mi].value.fromArray(M);
+        else this.meshUniforms[mi].value.identity();
+        return visible;
+      });
+      for (const d of this.draws) for (const o of d.objs) o.visible = vis[d.mesh];
+    }
+    dispose() {
+      const seen = /* @__PURE__ */ new Set();
+      this.group.traverse((o) => {
+        if (!o.isMesh) return;
+        if (!seen.has(o.geometry)) {
+          seen.add(o.geometry);
+          o.geometry.dispose();
+        }
+        o.material.dispose();
+      });
+      if (this.bones !== identityBones) this.bones.dispose();
+    }
+  };
+  function mulRow(a, b) {
+    const o = new Float64Array(16);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) o[r * 4 + c] = a[r * 4] * b[c] + a[r * 4 + 1] * b[4 + c] + a[r * 4 + 2] * b[8 + c] + a[r * 4 + 3] * b[12 + c];
+    return o;
+  }
+
+  // src/main.js
+  var $ = (id) => document.getElementById(id);
+  var MOTION_FILES = [["Adv", "Motion/Adv/Adv_Motion.cat"], ["Dressing room", "Motion/Room/Dress_Motion.cat"]];
+  var BLEND_FRAMES = 10;
+  var state = {
+    gd: null,
+    lib: null,
+    chara: null,
+    views: [null, null],
+    motions: [],
+    list: [],
+    motion: null,
+    frame: 0,
+    playing: true,
+    speed: 1,
+    physics: true,
+    outline: true,
+    blend: null,
+    matFrame: 0,
+    loading: false,
+    token: 0
+  };
+  var canvas = $("view");
+  var renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(1974310, 1);
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(30, 1, 0.05, 100);
+  var root = new THREE.Group();
+  scene.add(root);
+  {
+    const grid = new THREE.GridHelper(4, 16, 3817290, 2764342);
+    scene.add(grid);
+  }
+  var orbit = { yaw: 0, pitch: 0.12, dist: 3.2, target: new THREE.Vector3(0, 0.85, 0) };
+  function frameCharacter() {
+    const h = state.chara ? state.chara.height : 1.6;
+    orbit.target.set(0, h * 0.5, 0);
+    orbit.dist = h * 2.9;
+    orbit.yaw = 0;
+    orbit.pitch = 0.08;
+  }
+  function placeCamera() {
+    const c = Math.cos(orbit.pitch);
+    camera.position.set(
+      orbit.target.x + orbit.dist * c * Math.sin(orbit.yaw),
+      orbit.target.y + orbit.dist * Math.sin(orbit.pitch),
+      orbit.target.z + orbit.dist * c * Math.cos(orbit.yaw)
+    );
+    camera.lookAt(orbit.target);
+  }
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
+      renderer.setSize(w, h, false);
+      camera.aspect = w / Math.max(1, h);
+      camera.updateProjectionMatrix();
+    }
+  }
+  var drag = null;
+  var touch = null;
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  canvas.addEventListener("pointerdown", (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    if (e.button === 2 || e.button === 0 && e.altKey) {
+      startTouch(e);
+      return;
+    }
+    drag = { x: e.clientX, y: e.clientY, pan: e.button === 1 || e.shiftKey };
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (touch) {
+      moveTouch(e);
+      return;
+    }
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+    if (drag.pan) {
+      const s = orbit.dist * 15e-4;
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0), up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+      orbit.target.addScaledVector(right, -dx * s).addScaledVector(up, dy * s);
+    } else {
+      orbit.yaw -= dx * 8e-3;
+      orbit.pitch = Math.max(-1.45, Math.min(1.45, orbit.pitch + dy * 8e-3));
+    }
+  });
+  var endPointer = () => {
+    drag = null;
+    if (touch) {
+      touch.phys.release();
+      touch = null;
+    }
+  };
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    orbit.dist = Math.max(0.3, Math.min(20, orbit.dist * Math.exp(e.deltaY * 1e-3)));
+  }, { passive: false });
+  function rayAt(e) {
+    const r = canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    const rc = new THREE.Raycaster();
+    rc.setFromCamera(ndc, camera);
+    return [rc.ray.origin.toArray(), rc.ray.direction.toArray()];
+  }
+  function startTouch(e) {
+    if (!state.chara || !state.physics) return;
+    const [o, d] = rayAt(e);
+    let best = null;
+    for (const ph of state.chara.physicsList()) {
+      const t = ph.pick(o, d);
+      if (t < 0) continue;
+      if (!best || t < best.t) {
+        if (best) best.phys.release();
+        best = { phys: ph, t };
+      } else ph.release();
+    }
+    if (!best) return;
+    const g = best.phys.grab.target;
+    touch = { phys: best.phys, depth: (g[0] - o[0]) * d[0] + (g[1] - o[1]) * d[1] + (g[2] - o[2]) * d[2] };
+  }
+  function moveTouch(e) {
+    const [o, d] = rayAt(e);
+    touch.phys.grab.target = [o[0] + d[0] * touch.depth, o[1] + d[1] * touch.depth, o[2] + d[2] * touch.depth];
+  }
+  window.addEventListener("keydown", (e) => {
+    if (e.target && (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") && e.key !== " ") return;
+    if (e.key === " ") {
+      e.preventDefault();
+      togglePlay();
+    } else if (e.key === "PageDown" || e.key === "ArrowRight") {
+      e.preventDefault();
+      stepMotion(1);
+    } else if (e.key === "PageUp" || e.key === "ArrowLeft") {
+      e.preventDefault();
+      stepMotion(-1);
+    } else if (e.key === "c" || e.key === "C") toggleCostume();
+    else if (e.key === "p" || e.key === "P") {
+      $("physics").checked = !$("physics").checked;
+      setPhysics($("physics").checked);
+    } else if (e.key === "r" || e.key === "R") frameCharacter();
+    else if (e.key === "l" || e.key === "L") {
+      const sel = $("layer");
+      sel.selectedIndex = (sel.selectedIndex + 1) % sel.options.length;
+      setLayer(sel.value);
+    } else if (e.key === "f" || e.key === "F") {
+      stepSelect("brow");
+      stepSelect("eye");
+      setExpr();
+    } else if (e.key === "n" || e.key === "N") {
+      stepSelect("mouth");
+      setExpr();
+    } else if (e.key === "t" || e.key === "T") {
+      $("talk").checked = !$("talk").checked;
+      setExpr();
+    }
+  });
+  function log(s) {
+    console.log(s);
+  }
+  function status(s, err = false) {
+    const el = $("status");
+    el.textContent = s;
+    el.classList.toggle("err", err);
+  }
+  for (let i = 0; i < 35; i++) {
+    const o = document.createElement("option");
+    o.value = i;
+    o.textContent = "pl" + String(i).padStart(2, "0");
+    $("chara").appendChild(o);
+  }
+  async function openFolder() {
+    if (window.showDirectoryPicker) {
+      try {
+        const dir = await window.showDirectoryPicker({ id: "gamedata", mode: "read" });
+        await useGameData(await GameData.fromHandle(dir));
+        return;
+      } catch (e) {
+        if (e && e.name === "AbortError") return;
+        console.warn(e);
+      }
+    }
+    $("dirinput").click();
+  }
+  $("open").addEventListener("click", openFolder);
+  $("dirinput").addEventListener("change", async (e) => {
+    if (e.target.files && e.target.files.length) await useGameData(GameData.fromFileList(e.target.files));
+  });
+  async function useGameData(gd) {
+    if (!gd.ok) {
+      status("That folder has no Fnames/E/filename.bin - pick the GameData folder (or the game folder).", true);
+      return;
+    }
+    state.gd = gd;
+    state.lib = new Library(gd, log);
+    $("folder").textContent = gd.label;
+    status("reading motions\u2026");
+    state.motions = [];
+    for (const [label, path] of MOTION_FILES) {
+      const buf = await state.lib.file(path);
+      if (!buf) {
+        log("missing " + path);
+        continue;
+      }
+      try {
+        for (const m of motionsFromBuffer(buf, path)) {
+          m.source = label;
+          state.motions.push(m);
+        }
+      } catch (e) {
+        log(path + ": " + e.message);
+      }
+      state.lib.buffers.delete(path);
+    }
+    document.body.classList.add("ready");
+    await loadCharacter(+$("chara").value);
+  }
+  $("chara").addEventListener("change", () => loadCharacter(+$("chara").value));
+  $("uniform").addEventListener("click", () => setCostume(0));
+  $("ninja").addEventListener("click", () => setCostume(1));
+  $("motion").addEventListener("change", () => playMotion(state.list[+$("motion").value]));
+  $("prev").addEventListener("click", () => stepMotion(-1));
+  $("next").addEventListener("click", () => stepMotion(1));
+  $("play").addEventListener("click", togglePlay);
+  $("physics").addEventListener("change", () => setPhysics($("physics").checked));
+  $("outline").addEventListener("change", () => {
+    state.outline = $("outline").checked;
+    applyOutline();
+  });
+  $("speed").addEventListener("input", () => {
+    state.speed = +$("speed").value;
+    $("speedv").textContent = state.speed.toFixed(2) + "\xD7";
+  });
+  $("scrub").addEventListener("input", () => {
+    state.frame = +$("scrub").value;
+    state.blend = null;
+  });
+  $("resetcam").addEventListener("click", frameCharacter);
+  $("layer").addEventListener("change", () => setLayer($("layer").value));
+  for (const id of ["brow", "eye", "mouth"]) $(id).addEventListener("change", setExpr);
+  $("open").addEventListener("input", setExpr);
+  $("talk").addEventListener("change", setExpr);
+  $("overlays").addEventListener("change", (e) => {
+    if (state.chara && e.target.dataset.k) state.chara.setOverlay(+e.target.dataset.k, e.target.checked);
+  });
+  function stepSelect(id) {
+    const s = $(id);
+    if (s.options.length) s.selectedIndex = (s.selectedIndex + 1) % s.options.length;
+  }
+  function setExpr() {
+    const ch = state.chara;
+    if (!ch) return;
+    Object.assign(ch.expr, { brow: +$("brow").value || 0, eye: +$("eye").value || 0, mouth: +$("mouth").value || 0, open: +$("open").value, talk: $("talk").checked });
+  }
+  function setLayer(v) {
+    if (!state.chara) return;
+    state.chara.setLayer(v);
+    state.matFrame = 0;
+  }
+  function fillFace(ch) {
+    for (const part of ["brow", "eye", "mouth"]) {
+      const sel = $(part), n = ch.exprCount(part), keep = +sel.value || 0;
+      sel.innerHTML = "";
+      for (let k = 0; k < Math.max(1, n); k++) {
+        const o = document.createElement("option");
+        o.value = k;
+        o.textContent = n ? String(k) : "\u2013";
+        sel.appendChild(o);
+      }
+      sel.value = Math.min(keep, Math.max(0, n - 1));
+      sel.disabled = !n;
+    }
+    $("open").disabled = $("talk").disabled = !ch.exprCount("mouth");
+    setExpr();
+    ch.setLayer($("layer").value);
+    for (const box of $("overlays").querySelectorAll("input")) ch.setOverlay(+box.dataset.k, box.checked);
+  }
+  $("resetphys").addEventListener("click", () => state.chara && state.chara.resetPhysics());
+  function togglePlay() {
+    state.playing = !state.playing;
+    $("play").textContent = state.playing ? "Pause" : "Play";
+  }
+  function setPhysics(on) {
+    state.physics = on;
+    if (state.chara) state.chara.resetPhysics();
+  }
+  function applyOutline() {
+    for (const v of state.views) if (v) {
+      for (const mv of v) for (const d of mv.draws) if (d.objs[1]) d.objs[1].visible = d.objs[1].visible && state.outline;
+    }
+  }
+  async function loadCharacter(index) {
+    if (!state.lib) return;
+    const token = ++state.token;
+    status(`loading pl${String(index).padStart(2, "0")}\u2026`);
+    document.body.classList.add("busy");
+    try {
+      const ch = new Character(state.lib, index);
+      await ch.load((what) => token === state.token && status(`loading pl${String(index).padStart(2, "0")}: ${what}\u2026`));
+      if (token !== state.token) return;
+      clearViews();
+      state.chara = ch;
+      fillFace(ch);
+      state.views = [null, null];
+      await new Promise((r2) => setTimeout(r2, 0));
+      buildViews(ch.active);
+      state.list = bodyMotions(state.motions, ch.rig.body.model);
+      fillMotionList();
+      const dflt = state.list.find((m) => m.name === "adv_plcom_ntrl01") || state.list[0] || null;
+      if (state.motion && state.list.includes(state.motion)) playMotion(state.motion, 0);
+      else playMotion(dflt, 0);
+      updateCostumeButtons();
+      frameCharacter();
+      const r = ch.rig;
+      status(`${ch.name}: ${r.label}, ${r.parts.length} parts, ${r.accs.length} accessories` + (ch.notes.length ? " \u2014 " + ch.notes.join("; ") : ""));
+    } catch (e) {
+      console.error(e);
+      if (token === state.token) status(e.message, true);
+    } finally {
+      if (token === state.token) document.body.classList.remove("busy");
+    }
+  }
+  function clearViews() {
+    for (const v of state.views) if (v) for (const mv of v) {
+      root.remove(mv.group);
+      mv.dispose();
+    }
+    state.views = [null, null];
+  }
+  function buildViews(c) {
+    if (state.views[c] || !state.chara.rigs[c]) return;
+    const ch = state.chara, active = ch.active;
+    ch.active = c;
+    state.views[c] = ch.drawList().map((pose) => new ModelView(pose));
+    ch.active = active;
+    for (const mv of state.views[c]) root.add(mv.group);
+  }
+  function showActive() {
+    state.views.forEach((v, c) => {
+      if (v) for (const mv of v) mv.group.visible = c === state.chara.active;
+    });
+  }
+  function setCostume(c) {
+    const ch = state.chara;
+    if (!ch || !ch.hasCostume(c)) return;
+    ch.setCostume(c);
+    buildViews(c);
+    showActive();
+    updateCostumeButtons();
+    status(`${ch.name}: ${ch.rig.label}`);
+  }
+  function toggleCostume() {
+    if (state.chara) setCostume(state.chara.active ? 0 : 1);
+  }
+  function updateCostumeButtons() {
+    const ch = state.chara;
+    for (const [id, c] of [["uniform", 0], ["ninja", 1]]) {
+      $(id).disabled = !ch || !ch.hasCostume(c);
+      $(id).classList.toggle("on", !!ch && ch.active === c);
+    }
+  }
+  function fillMotionList() {
+    const sel = $("motion");
+    sel.innerHTML = "";
+    const groups = /* @__PURE__ */ new Map();
+    state.list.forEach((m, i) => {
+      if (!groups.has(m.source)) {
+        const g = document.createElement("optgroup");
+        g.label = m.source;
+        groups.set(m.source, g);
+        sel.appendChild(g);
+      }
+      const o = document.createElement("option");
+      o.value = i;
+      o.textContent = m.name;
+      groups.get(m.source).appendChild(o);
+    });
+    $("mcount").textContent = state.list.length + " motions";
+  }
+  function playMotion(m, blendFrames = BLEND_FRAMES) {
+    if (state.motion && m && blendFrames > 0) state.blend = { motion: state.motion, frame: state.frame, left: blendFrames, total: blendFrames };
+    state.motion = m;
+    state.frame = 0;
+    const i = state.list.indexOf(m);
+    if (i >= 0) $("motion").value = i;
+    $("scrub").max = m ? Math.max(1, m.numFrames) : 1;
+  }
+  function stepMotion(dir) {
+    if (!state.list.length) return;
+    const i = state.list.indexOf(state.motion);
+    const n = state.list.length;
+    playMotion(state.list[i < 0 ? 0 : (i + dir + n) % n]);
+  }
+  var last = performance.now();
+  function tick(now) {
+    requestAnimationFrame(tick);
+    const dt = Math.min(0.1, (now - last) / 1e3);
+    last = now;
+    resize();
+    placeCamera();
+    const ch = state.chara;
+    if (ch && state.views[ch.active]) {
+      const step = state.playing ? dt * 60 * state.speed : 0;
+      const mo = state.motion;
+      if (mo) {
+        const n = Math.max(1, mo.numFrames);
+        state.frame = ((state.frame + step) % n + n) % n;
+      }
+      state.matFrame += step;
+      let blend = null;
+      if (state.blend) {
+        const b = state.blend;
+        b.frame = (b.frame + step) % Math.max(1, b.motion.numFrames);
+        b.left = Math.max(0, b.left - (step || dt * 60));
+        blend = { motion: b.motion, frame: b.frame, weight: b.total > 0 ? b.left / b.total : 0 };
+        if (b.left <= 0) state.blend = null;
+      }
+      ch.evaluate(mo, state.frame, blend, dt, state.physics);
+      const body = ch.rig.body.model;
+      const mf = body.animFrames > 1 && body.animFrames !== 65535 ? state.matFrame % body.animFrames : 0;
+      for (const mv of state.views[ch.active]) mv.update(mf);
+      if (!state.outline) applyOutline();
+      $("scrub").value = state.frame;
+      $("frame").textContent = mo ? `${Math.floor(state.frame)} / ${mo.numFrames}` : "";
+    }
+    camera.getWorldDirection(shared.uEyeDir.value);
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(tick);
+  if (!window.showDirectoryPicker) $("pickhint").textContent = `Your browser lists the folder's files and may call it an "upload": the files stay on this computer.`;
+  window.tmdview = { state, useGameData, loadCharacter, setCostume, playMotion, frameCharacter, orbit, renderer, camera };
+})();
+
+</script>
+</body>
+</html>
