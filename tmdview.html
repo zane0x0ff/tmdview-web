@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tmdview web</title>
+<title>tmdview web 1.1</title>
 <style>
   :root { --bg: #1e2026; --panel: #262931; --line: #353945; --text: #e4e6eb; --dim: #9aa0ad; --accent: #e0607e; --err: #ff8080; }
   * { box-sizing: border-box; }
@@ -43,6 +43,7 @@
   .grid3 select { padding: 4px 6px; }
   .chips { display: flex; flex-wrap: wrap; gap: 4px 12px; }
   #motion { height: 180px; }
+  input[type=color] { height: 30px; padding: 0 2px; background: #30343e; border: 1px solid var(--line); border-radius: 6px; }
   #frame { font: 12px ui-monospace, monospace; color: var(--dim); text-align: right; }
   @media (max-width: 700px) { body { flex-direction: column; } #side { width: auto; max-height: 45vh; } }
 </style>
@@ -63,6 +64,9 @@
       <button id="uniform">Uniform</button>
       <button id="ninja">Ninja</button>
     </div>
+    <label class="cap" for="costume">Costume</label>
+    <select id="costume"></select>
+    <div id="costumenote" class="hint"></div>
   </section>
   <section class="needs">
     <div class="row"><label class="cap" for="motion">Motion</label><span id="mcount" class="hint fit"></span></div>
@@ -93,7 +97,7 @@
       <label>Eyes<select id="eye"></select></label>
       <label>Mouth<select id="mouth"></select></label>
     </div>
-    <div class="row"><span class="hint fit">Mouth open</span><input id="open" type="range" min="0" max="20" step="1" value="0"><label class="check fit"><input id="talk" type="checkbox"> Talk</label></div>
+    <div class="row"><span class="hint fit">Mouth open</span><input id="mouthopen" type="range" min="0" max="20" step="1" value="0"><label class="check fit"><input id="talk" type="checkbox"> Talk</label></div>
     <div class="chips" id="overlays">
       <label class="check"><input type="checkbox" data-k="0"> Cheeks</label>
       <label class="check"><input type="checkbox" data-k="1"> Blush</label>
@@ -105,6 +109,9 @@
   <section class="needs">
     <label class="check"><input id="physics" type="checkbox" checked> Physics (skirt, hair, bust)</label>
     <label class="check"><input id="outline" type="checkbox" checked> Outlines</label>
+    <label class="check"><input id="weapons" type="checkbox"> Weapons (in battle motions)</label>
+    <label class="check"><input id="grid" type="checkbox" checked> Floor grid</label>
+    <div class="row"><label class="check fit" for="bgcolor">Background</label><input id="bgcolor" type="color" value="#1e2026"><button id="bgreset" class="fit">Default</button></div>
     <div class="row"><button id="resetphys">Reset physics</button><button id="resetcam">Reset camera</button></div>
   </section>
   <section>
@@ -112,7 +119,7 @@
     <div class="hint">
       <kbd>Left drag</kbd> orbit · <kbd>Shift</kbd>/<kbd>middle</kbd> pan · <kbd>wheel</kbd> zoom<br>
       <kbd>Right drag</kbd> (or <kbd>Alt</kbd>+left) touch: grab the skirt, hair or bust<br>
-      <kbd>Space</kbd> play/pause · <kbd>PgUp</kbd>/<kbd>PgDn</kbd> motion · <kbd>C</kbd> costume · <kbd>L</kbd> layer · <kbd>F</kbd>/<kbd>N</kbd> expression / mouth · <kbd>T</kbd> talk · <kbd>P</kbd> physics · <kbd>R</kbd> camera
+      <kbd>Space</kbd> play/pause · <kbd>PgUp</kbd>/<kbd>PgDn</kbd> motion · <kbd>C</kbd> costume · <kbd>L</kbd> layer · <kbd>F</kbd>/<kbd>N</kbd> expression / mouth · <kbd>T</kbd> talk · <kbd>W</kbd> weapons · <kbd>P</kbd> physics · <kbd>R</kbd> camera
     </div>
   </section>
 </aside>
@@ -1656,7 +1663,16 @@
   };
   async function readOutfit(lib, chara) {
     const buf = await lib.file("Binary/Param/Player/cosinfo.bin");
-    const o = { costume: [chara, 29 + chara], underwear: [chara, chara], hair: [chara, chara, -1], acc: [], accAux: [], braType: () => 0 };
+    const o = {
+      costume: [chara, 29 + chara],
+      underwear: [chara, chara],
+      hair: [chara, chara, -1],
+      acc: [],
+      accAux: [],
+      braType: () => 0,
+      flags: () => ({ noDamage: false, noUnderwear: false }),
+      costumeCount: 174
+    };
     if (!buf) {
       lib.log("no cosinfo.bin: guessing the costume files from the index");
       return o;
@@ -1677,6 +1693,12 @@
       const c = costume % 174, off = 16 + 56 * nch + 8 * c;
       return c < ncos && off + 4 <= buf.byteLength ? v.getUint32(off, true) : 0;
     };
+    o.flags = (costume) => {
+      const c = costume % 174, off = 16 + 56 * nch + 8 * c;
+      if (c >= ncos || off + 8 > buf.byteLength) return { noDamage: false, noUnderwear: false };
+      return { noDamage: v.getUint16(off + 4, true) !== 0, noUnderwear: v.getUint16(off + 6, true) !== 0 };
+    };
+    o.costumeCount = ncos;
     return o;
   }
   function bustVariant(chara, costume) {
@@ -1790,9 +1812,10 @@
     constructor(lib, index) {
       this.lib = lib;
       this.index = index;
-      this.rigs = [null, null];
+      this.rigs = [null, null, null];
       this.active = 1;
       this.notes = [];
+      this.findMotion = () => null;
       this.layer = "NTRL";
       this.expr = { brow: 0, eye: 0, mouth: 0, open: 0, talk: false };
       this.overlays = [false, false, false, false, false];
@@ -1836,14 +1859,24 @@
       this.notes.push(s);
       this.lib.log(this.name + ": " + s);
     }
-    async loadRig(c) {
-      const lib = this.lib, ix = this.index, o = this.outfit, id = o.costume[c];
+    /** any costume id (0..172) worn by this character in the slot 'c' = 2 (her everyday hair and underwear) */
+    async loadCustom(id) {
+      if (this.rigs[2] && this.rigs[2].costumeId === id) return this.rigs[2];
+      this.rigs[2] = await this.loadRig(2, id);
+      return this.rigs[2];
+    }
+    /** c: 0 everyday, 1 shinobi (cosinfo costume ids), 2 another costume ('id') worn like the everyday one */
+    async loadRig(c, idOverride = -1) {
+      const lib = this.lib, ix = this.index, o = this.outfit, id = c === 2 ? idOverride : o.costume[c];
+      const slot = c === 1 ? 1 : 0;
       if (id < 0) throw new Error("no costume id");
-      const catPath = await lib.assetPath(973 + id, id < 29 ? `Model/Costume/Uniform/${pad2(id)}_00_H.cat` : `Model/Costume/Ninja/${pad2(id - 29)}_00_H.cat`);
+      const flags = o.flags(id);
+      const fallback = id < 29 ? `Model/Costume/Uniform/${pad2(id)}_00_H.cat` : id < 74 ? `Model/Costume/Ninja/${pad2(id - 29)}_00_H.cat` : `Model/Costume/FreeCos/${pad2(id - 74)}_00_H.cat`;
+      const catPath = await lib.assetPath(973 + id, fallback);
       const bodyModel = await lib.model(catPath);
       if (!bodyModel) throw new Error("cannot load " + catPath);
-      const rig = { costume: c, costumeId: id, label: catPath.split("/").slice(-2).join("/"), body: newPose(bodyModel), parts: [], accs: [], boneAdjust: null };
-      rig.bust = bustVariant(ix, c);
+      const rig = { costume: slot, costumeId: id, flags, label: catPath.split("/").slice(-2).join("/"), body: newPose(bodyModel), parts: [], accs: [], boneAdjust: null };
+      rig.bust = bustVariant(ix, slot);
       const scl = await lib.file("Binary/Param/Player/plbodyscl.bin");
       if (scl) {
         const v = new DataView(scl), n = v.getUint32(0, true), base = 4 + 4 * n, first = v.getUint32(4, true);
@@ -1870,13 +1903,13 @@
           }
         }
       }
-      const hairId = o.hair[c] >= 0 ? o.hair[c] : ix;
+      const hairId = o.hair[slot] >= 0 ? o.hair[slot] : ix;
       const hair = await lib.model(`Model/Playable/hr${pad2(hairId)}/hr${pad2(hairId)}_H.cat`);
-      const u = o.underwear[c];
+      const u = o.underwear[slot];
       let pants = null, bura = null;
       if (u >= 0) {
         const swim = u < 120 ? 2913 + u : 7282 + (u - 120);
-        pants = await lib.model(await lib.assetPath(swim, `Model/Costume/Swim/${pad2(Math.floor(u / 20))}_${pad2(u % 20)}_H.cat`));
+        if (!flags.noUnderwear) pants = await lib.model(await lib.assetPath(swim, `Model/Costume/Swim/${pad2(Math.floor(u / 20))}_${pad2(u % 20)}_H.cat`));
         const type = Math.max(0, o.braType(id));
         const bra = u < 120 ? 2713 + type * 20 + u % 20 : 7202 + type * 20 + (u - 120) % 20;
         bura = await lib.textureSet(await lib.assetPath(bra, `Model/Costume/Bura/${pad2(type)}_${pad2(u % 20)}_H.cat`));
@@ -1890,7 +1923,8 @@
         if (col) coll.push(col);
       };
       if (id < 29) await add2(5008 + id, `Binary/physics/Uniform/yure_unicos_${pad2(id)}.bin`, `Binary/physics/Uniform/collision_unicos_${pad2(id)}.bin`);
-      else await add2(5059 + id - 29, `Binary/physics/Ninja/yure_ninjacos_${pad2(id - 29)}.bin`, `Binary/physics/Ninja/collision_ninjacos_${pad2(id - 29)}.bin`);
+      else if (id < 74) await add2(5059 + id - 29, `Binary/physics/Ninja/yure_ninjacos_${pad2(id - 29)}.bin`, `Binary/physics/Ninja/collision_ninjacos_${pad2(id - 29)}.bin`);
+      else await add2(5059 + id - 29, "", "");
       const group = await skirtGroup(lib, id);
       if (group >= 0) await add2(4903 + group, "", "");
       await add2(4908 + hairId, `Binary/physics/hr/yure_hr_${pad2(hairId)}.bin`, `Binary/physics/hr/collision_hr_${pad2(hairId)}.bin`);
@@ -1930,14 +1964,15 @@
         p.physics = pp.active ? pp : null;
         rig.parts.push(p);
       }
-      if (ix === 16) await this.attachHairWeapon(rig, yure, coll);
-      await this.attachAccessories(rig, c);
+      await this.attachWeapons(rig, yure, coll);
+      await this.attachAccessories(rig, slot);
       this.applyLayer(rig);
       return rig;
     }
-    /** pl16's back hair is her weapon (Model/Playable/wpn16, weaponinfo.bin slots 0 and 2): the only weapon models
-     *  drawn here (the game's weapon hide, 0x1400153c6, skips her), at rest on the slot bone */
-    async attachHairWeapon(rig, yure, coll) {
+    /** weapons: Model/Playable/wpnNN, one model 'plNN_weaponKK' per weaponinfo.bin slot shown (A != 0), hung on the
+     *  slot's bone with its own skeleton, the slot's B meshes hidden; posed by the body motion's _wpKK companion.
+     *  Drawn only on request and in battle motions (Character.weaponVisible); pl16's hair slots always */
+    async attachWeapons(rig, yure, coll) {
       const lib = this.lib, ix = this.index;
       const info = await lib.file("Binary/Param/Player/weaponinfo.bin");
       if (!info || info.byteLength < 10080) return;
@@ -1945,7 +1980,6 @@
       for (let k = 0; k < 8; k++) {
         let bone = "";
         for (let i = 0; i < 16 && u8[(ix * 8 + k) * 16 + i]; i++) bone += String.fromCharCode(u8[(ix * 8 + k) * 16 + i]);
-        if (k !== 0 && k !== 2) continue;
         if (!bone || !v.getInt32(names + (ix * 8 + k) * 4, true)) continue;
         const model = await lib.model(`Model/Playable/wpn${pad2(ix)}/wpn${pad2(ix)}_H.cat`, `pl${pad2(ix)}_weapon${pad2(k)}`);
         const bi = rig.body.model.findBone(hash(bone));
@@ -1953,6 +1987,8 @@
         const p = newPose(model);
         p.kind = "weapon";
         p.parentBone = bi;
+        p.keep = ix === 16 && (k === 0 || k === 2);
+        p.onRoot = bone === "ido";
         p.bodyBone = model.bones.map(() => -1);
         for (let j = 0; j < 8; j++) {
           const mi = v.getInt16(lists + ((ix * 8 + k) * 8 + j) * 2, true);
@@ -2026,7 +2062,9 @@
       for (const r of this.rigs) if (r) this.applyLayer(r);
     }
     applyLayer(rig) {
-      const ls = { state: this.layer, bigBust: rig.bust !== 0, act: true, changed: false, costumeState: rig.costume, original: true };
+      const state2 = rig.flags && rig.flags.noDamage && ["BRK0", "BRK1", "BRK2"].includes(this.layer) ? "NTRL" : this.layer;
+      rig.layerShown = state2;
+      const ls = { state: state2, bigBust: rig.bust !== 0, act: true, changed: false, costumeState: rig.costume, original: true };
       for (const p of [rig.body, ...rig.parts]) p.meshHidden = layerHidden(p.model, ls);
     }
     get rig() {
@@ -2094,13 +2132,29 @@
       });
       for (const p of r.parts) {
         const pm = p.model;
+        let wl = null;
+        if (p.kind === "weapon") {
+          if (p.driveFor !== motion) {
+            p.driveFor = motion;
+            p.drive = null;
+            for (let k = 0; motion && k < 3 && !p.drive; k++) {
+              const wm = this.findMotion(motion.name + "_wp" + pad2(k));
+              if (!wm) continue;
+              let hit = 0;
+              for (const b of pm.bones) if (wm.trackIndex.has(b.hash)) hit++;
+              if (2 * hit >= pm.numBones) p.drive = wm;
+            }
+          }
+          if (p.drive) wl = p.drive.sample(Math.min(frame, Math.max(0, p.drive.numFrames - 1)) % Math.max(1, p.drive.numFrames));
+        }
         for (let i = 0; i < pm.numBones; i++) {
           const ft = p.faceTracks && p.faceTracks[i];
-          if (!ft && p.bodyBone[i] >= 0) {
+          const wt = wl ? p.drive.trackIndex.get(pm.bones[i].hash) : void 0;
+          if (!ft && wt === void 0 && p.bodyBone[i] >= 0) {
             p.world[i] = body.world[p.bodyBone[i]];
             continue;
           }
-          const b = pm.bones[i], L = ft ? faceLocal[ft[0]][ft[1]].slice() : ident();
+          const b = pm.bones[i], L = ft ? faceLocal[ft[0]][ft[1]].slice() : wt !== void 0 ? wl[wt].slice() : ident();
           L[12] += b.offset[0];
           L[13] += b.offset[1];
           L[14] += b.offset[2];
@@ -2108,7 +2162,8 @@
         }
         if (p.physics) {
           p.physics.enabled = physicsOn;
-          p.physics.drive = null;
+          p.physics.drive = p.drive || null;
+          p.physics.driveFrame = frame;
           if (physicsOn) p.physics.apply(dt);
         }
         computeSkin(p);
@@ -2126,6 +2181,12 @@
         }
         computeSkin(a);
       }
+    }
+    /** whether a weapon part is drawn: pl16's hair always; others when weapons are on and a battle motion plays,
+     *  and an 'ido' weapon only while a companion motion places it (it would lie at the feet otherwise) */
+    weaponVisible(p, on, battle) {
+      if (p.kind !== "weapon" || p.keep) return true;
+      return on && battle && !(p.onRoot && !p.drive);
     }
     /** everything drawn for the active costume */
     drawList() {
@@ -2581,15 +2642,18 @@ void main() {
     gd: null,
     lib: null,
     chara: null,
-    views: [null, null],
+    views: [null, null, null],
     motions: [],
     list: [],
+    actMotions: /* @__PURE__ */ new Map(),
+    costumeNames: [],
     motion: null,
     frame: 0,
     playing: true,
     speed: 1,
     physics: true,
     outline: true,
+    weapons: false,
     blend: null,
     matFrame: 0,
     loading: false,
@@ -2603,10 +2667,43 @@ void main() {
   var camera = new THREE.PerspectiveCamera(30, 1, 0.05, 100);
   var root = new THREE.Group();
   scene.add(root);
-  {
-    const grid = new THREE.GridHelper(4, 16, 3817290, 2764342);
-    scene.add(grid);
+  var grid = new THREE.GridHelper(4, 16, 3817290, 2764342);
+  scene.add(grid);
+  var prefs = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("tmdview.prefs") || "{}");
+    } catch {
+      return {};
+    }
+  })();
+  function savePrefs() {
+    try {
+      localStorage.setItem("tmdview.prefs", JSON.stringify(prefs));
+    } catch {
+    }
   }
+  function applyView() {
+    grid.visible = prefs.grid !== false;
+    renderer.setClearColor(prefs.bg || "#1e2026", 1);
+    $("grid").checked = grid.visible;
+    $("bgcolor").value = prefs.bg || "#1e2026";
+  }
+  applyView();
+  $("grid").addEventListener("change", () => {
+    prefs.grid = $("grid").checked;
+    savePrefs();
+    applyView();
+  });
+  $("bgcolor").addEventListener("input", () => {
+    prefs.bg = $("bgcolor").value;
+    savePrefs();
+    applyView();
+  });
+  $("bgreset").addEventListener("click", () => {
+    delete prefs.bg;
+    savePrefs();
+    applyView();
+  });
   var orbit = { yaw: 0, pitch: 0.12, dist: 3.2, target: new THREE.Vector3(0, 0.85, 0) };
   function frameCharacter() {
     const h = state.chara ? state.chara.height : 1.6;
@@ -2731,6 +2828,9 @@ void main() {
     } else if (e.key === "t" || e.key === "T") {
       $("talk").checked = !$("talk").checked;
       setExpr();
+    } else if (e.key === "w" || e.key === "W") {
+      $("weapons").checked = !$("weapons").checked;
+      state.weapons = $("weapons").checked;
     }
   });
   function log(s) {
@@ -2790,6 +2890,8 @@ void main() {
       }
       state.lib.buffers.delete(path);
     }
+    state.costumeNames = [];
+    for (let id = 0; id < 173; id++) state.costumeNames.push((await state.lib.assetName(973 + id)).replace(/^Model\/Costume\//, "").replace(/_00_H\.cat$/i, ""));
     document.body.classList.add("ready");
     await loadCharacter(+$("chara").value);
   }
@@ -2805,6 +2907,9 @@ void main() {
     state.outline = $("outline").checked;
     applyOutline();
   });
+  $("weapons").addEventListener("change", () => {
+    state.weapons = $("weapons").checked;
+  });
   $("speed").addEventListener("input", () => {
     state.speed = +$("speed").value;
     $("speedv").textContent = state.speed.toFixed(2) + "\xD7";
@@ -2816,7 +2921,8 @@ void main() {
   $("resetcam").addEventListener("click", frameCharacter);
   $("layer").addEventListener("change", () => setLayer($("layer").value));
   for (const id of ["brow", "eye", "mouth"]) $(id).addEventListener("change", setExpr);
-  $("open").addEventListener("input", setExpr);
+  $("mouthopen").addEventListener("input", setExpr);
+  $("costume").addEventListener("change", () => chooseCostume(+$("costume").value));
   $("talk").addEventListener("change", setExpr);
   $("overlays").addEventListener("change", (e) => {
     if (state.chara && e.target.dataset.k) state.chara.setOverlay(+e.target.dataset.k, e.target.checked);
@@ -2828,7 +2934,7 @@ void main() {
   function setExpr() {
     const ch = state.chara;
     if (!ch) return;
-    Object.assign(ch.expr, { brow: +$("brow").value || 0, eye: +$("eye").value || 0, mouth: +$("mouth").value || 0, open: +$("open").value, talk: $("talk").checked });
+    Object.assign(ch.expr, { brow: +$("brow").value || 0, eye: +$("eye").value || 0, mouth: +$("mouth").value || 0, open: +$("mouthopen").value, talk: $("talk").checked });
   }
   function setLayer(v) {
     if (!state.chara) return;
@@ -2848,7 +2954,7 @@ void main() {
       sel.value = Math.min(keep, Math.max(0, n - 1));
       sel.disabled = !n;
     }
-    $("open").disabled = $("talk").disabled = !ch.exprCount("mouth");
+    $("mouthopen").disabled = $("talk").disabled = !ch.exprCount("mouth");
     setExpr();
     ch.setLayer($("layer").value);
     for (const box of $("overlays").querySelectorAll("input")) ch.setOverlay(+box.dataset.k, box.checked);
@@ -2874,15 +2980,18 @@ void main() {
     document.body.classList.add("busy");
     try {
       const ch = new Character(state.lib, index);
+      const act = await loadActMotions(index);
+      ch.findMotion = (name) => act.get(name) || null;
       await ch.load((what) => token === state.token && status(`loading pl${String(index).padStart(2, "0")}: ${what}\u2026`));
       if (token !== state.token) return;
       clearViews();
       state.chara = ch;
       fillFace(ch);
-      state.views = [null, null];
+      state.views = [null, null, null];
       await new Promise((r2) => setTimeout(r2, 0));
       buildViews(ch.active);
-      state.list = bodyMotions(state.motions, ch.rig.body.model);
+      state.list = bodyMotions([...state.motions, ...act.values()], ch.rig.body.model);
+      fillCostumes(ch);
       fillMotionList();
       const dflt = state.list.find((m) => m.name === "adv_plcom_ntrl01") || state.list[0] || null;
       if (state.motion && state.list.includes(state.motion)) playMotion(state.motion, 0);
@@ -2903,7 +3012,97 @@ void main() {
       root.remove(mv.group);
       mv.dispose();
     }
-    state.views = [null, null];
+    state.views = [null, null, null];
+  }
+  async function loadActMotions(index) {
+    if (state.actMotions.has(index)) return state.actMotions.get(index);
+    const map = /* @__PURE__ */ new Map(), path = `Motion/Player/pl${String(index).padStart(2, "0")}_act.cat`;
+    const buf = await state.lib.file(path);
+    if (buf) {
+      try {
+        for (const m of motionsFromBuffer(buf, path)) {
+          m.source = "Battle (pl" + String(index).padStart(2, "0") + ")";
+          map.set(m.name, m);
+        }
+      } catch (e) {
+        log(path + ": " + e.message);
+      }
+      state.lib.buffers.delete(path);
+    } else log("missing " + path);
+    state.actMotions.clear();
+    state.actMotions.set(index, map);
+    return map;
+  }
+  function costumeLabel(id) {
+    const n = state.costumeNames[id] || "costume " + id;
+    const f = state.chara ? state.chara.outfit.flags(id) : {};
+    return `${String(id).padStart(3, " ")}  ${n}` + (f.noDamage ? "  \xB7 no damage" : "") + (f.noUnderwear ? "  \xB7 no underwear" : "");
+  }
+  function fillCostumes(ch) {
+    const sel = $("costume"), o = ch.outfit;
+    sel.innerHTML = "";
+    const own = document.createElement("optgroup");
+    own.label = ch.name + "'s costumes";
+    sel.appendChild(own);
+    [[0, "Everyday"], [1, "Shinobi"]].forEach(([c, what]) => {
+      if (!ch.hasCostume(c)) return;
+      const op = document.createElement("option");
+      op.value = o.costume[c];
+      op.textContent = `${what}: ${costumeLabel(o.costume[c]).trim()}`;
+      own.appendChild(op);
+    });
+    for (const [label, a, b] of [["Uniform (0\u201328)", 0, 29], ["Ninja (29\u201373)", 29, 74], ["FreeCos (74\u2013172)", 74, 173]]) {
+      const g = document.createElement("optgroup");
+      g.label = label;
+      sel.appendChild(g);
+      for (let id = a; id < b; id++) {
+        const op = document.createElement("option");
+        op.value = id;
+        op.textContent = costumeLabel(id);
+        g.appendChild(op);
+      }
+    }
+    syncCostumeSelect();
+  }
+  function syncCostumeSelect() {
+    const ch = state.chara;
+    if (!ch) return;
+    const r = ch.rig, sel = $("costume");
+    const opts = [...sel.options];
+    const hit = ch.active < 2 ? opts.find((op) => op.parentNode === sel.firstChild && +op.value === r.costumeId) : opts.find((op) => op.parentNode !== sel.firstChild && +op.value === r.costumeId);
+    if (hit) sel.selectedIndex = opts.indexOf(hit);
+    const f = r.flags || {};
+    $("costumenote").textContent = (f.noDamage ? "No clothes damage BRK0\u2013BRK2 (cosinfo flag). " : "") + (f.noUnderwear ? "Underwear not drawn (cosinfo flag)." : "");
+  }
+  async function chooseCostume(id) {
+    const ch = state.chara;
+    if (!ch) return;
+    if (id === ch.outfit.costume[ch.active < 2 ? ch.active : 0] && ch.active < 2) return;
+    for (const c of [1, 0]) if (ch.hasCostume(c) && ch.outfit.costume[c] === id) {
+      setCostume(c);
+      return;
+    }
+    status(`loading costume ${id}\u2026`);
+    document.body.classList.add("busy");
+    try {
+      if (state.views[2]) {
+        for (const mv of state.views[2]) {
+          root.remove(mv.group);
+          mv.dispose();
+        }
+        state.views[2] = null;
+      }
+      await ch.loadCustom(id);
+      if (state.chara !== ch) return;
+      ch.setLayer($("layer").value);
+      setCostume(2);
+    } catch (e) {
+      console.error(e);
+      status(`costume ${id}: ${e.message}`, true);
+      syncCostumeSelect();
+    } finally {
+      document.body.classList.remove("busy");
+    }
   }
   function buildViews(c) {
     if (state.views[c] || !state.chara.rigs[c]) return;
@@ -2925,10 +3124,11 @@ void main() {
     buildViews(c);
     showActive();
     updateCostumeButtons();
+    syncCostumeSelect();
     status(`${ch.name}: ${ch.rig.label}`);
   }
   function toggleCostume() {
-    if (state.chara) setCostume(state.chara.active ? 0 : 1);
+    if (state.chara) setCostume(state.chara.active === 1 ? 0 : 1);
   }
   function updateCostumeButtons() {
     const ch = state.chara;
@@ -2996,7 +3196,11 @@ void main() {
       ch.evaluate(mo, state.frame, blend, dt, state.physics);
       const body = ch.rig.body.model;
       const mf = body.animFrames > 1 && body.animFrames !== 65535 ? state.matFrame % body.animFrames : 0;
-      for (const mv of state.views[ch.active]) mv.update(mf);
+      const battle = !!(mo && mo.source && mo.source.startsWith("Battle"));
+      for (const mv of state.views[ch.active]) {
+        mv.update(mf);
+        mv.group.visible = ch.weaponVisible(mv.pose, state.weapons, battle);
+      }
       if (!state.outline) applyOutline();
       $("scrub").value = state.frame;
       $("frame").textContent = mo ? `${Math.floor(state.frame)} / ${mo.numFrames}` : "";
@@ -3006,7 +3210,7 @@ void main() {
   }
   requestAnimationFrame(tick);
   if (!window.showDirectoryPicker) $("pickhint").textContent = `Your browser lists the folder's files and may call it an "upload": the files stay on this computer.`;
-  window.tmdview = { state, useGameData, loadCharacter, setCostume, playMotion, frameCharacter, orbit, renderer, camera };
+  window.tmdview = { state, useGameData, loadCharacter, setCostume, chooseCostume, playMotion, frameCharacter, orbit, renderer, camera };
 })();
 
 </script>
