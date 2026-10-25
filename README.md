@@ -51,6 +51,7 @@ page. Without it the page falls back to the jsDelivr CDN.
 * F / N: next brow + eye pose / next mouth
 * T: talk
 * P: physics
+* W: weapons
 * R: camera
 
 **Source:** `src/*.js` are ES modules, bundled with esbuild into the one-file page by `node build.mjs`, which writes
