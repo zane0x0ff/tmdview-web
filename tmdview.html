@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tmdview web 1.1</title>
+<title>tmdview web 1.2</title>
 <style>
   :root { --bg: #1e2026; --panel: #262931; --line: #353945; --text: #e4e6eb; --dim: #9aa0ad; --accent: #e0607e; --err: #ff8080; }
   * { box-sizing: border-box; }
@@ -50,7 +50,7 @@
 </head>
 <body>
 <aside id="side">
-  <h1>tmdview <span>web</span></h1>
+  <h1>tmdview 1.2 <span>web</span></h1>
   <section>
     <button id="open" class="primary">Open GameData folder…</button>
     <input id="dirinput" type="file" webkitdirectory directory multiple hidden>
@@ -111,6 +111,8 @@
     <label class="check"><input id="outline" type="checkbox" checked> Outlines</label>
     <label class="check"><input id="weapons" type="checkbox"> Weapons (in battle motions)</label>
     <label class="check"><input id="grid" type="checkbox" checked> Floor grid</label>
+    <div class="row"><span class="hint fit">Wetness</span><input id="wet" type="range" min="0" max="1" step="0.01" value="0"><span id="wetv" class="hint fit">0%</span></div>
+    <div class="row"><span class="hint fit">Turn</span><input id="turn" type="range" min="0" max="360" step="1" value="0"><span id="turnv" class="hint fit">0°</span></div>
     <div class="row"><label class="check fit" for="bgcolor">Background</label><input id="bgcolor" type="color" value="#1e2026"><button id="bgreset" class="fit">Default</button></div>
     <div class="row"><button id="resetphys">Reset physics</button><button id="resetcam">Reset camera</button></div>
   </section>
@@ -131,7 +133,11 @@
 (() => {
   // src/gamedata.js
   var norm = (p) => p.replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase();
+  var NAME_TABLES = ["fnames/e/filename.bin", "fnames/filenameen.bin"];
   var GameData = class _GameData {
+    constructor() {
+      this.nameTable = NAME_TABLES[0];
+    }
     static fromFileList(files) {
       const gd = new _GameData();
       const map = /* @__PURE__ */ new Map();
@@ -140,10 +146,15 @@
         map.set(rel, f);
       }
       const keys = [...map.keys()];
-      let prefix = "";
-      const probe = "fnames/e/filename.bin";
-      const hit = keys.find((k) => k.endsWith("/" + probe) || k === probe);
-      if (hit) prefix = hit.slice(0, hit.length - probe.length);
+      let prefix = "", hit = null;
+      for (const probe of NAME_TABLES) {
+        hit = keys.find((k) => k.endsWith("/" + probe) || k === probe);
+        if (hit) {
+          prefix = hit.slice(0, hit.length - probe.length);
+          gd.nameTable = probe;
+          break;
+        }
+      }
       gd.files = /* @__PURE__ */ new Map();
       for (const [k, f] of map) if (k.startsWith(prefix)) gd.files.set(k.slice(prefix.length), f);
       gd.label = files[0] && (files[0].webkitRelativePath || "").split("/")[0] || "GameData";
@@ -155,14 +166,21 @@
       gd.root = dir;
       gd.label = dir.name;
       gd.dirCache = /* @__PURE__ */ new Map();
-      if (!await gd._resolve("fnames/e/filename.bin")) {
+      const findTable = async () => {
+        for (const t of NAME_TABLES) if (await gd._resolve(t)) return t;
+        return null;
+      };
+      let table = await findTable();
+      if (!table) {
         const sub2 = await gd._child(dir, "gamedata", true);
         if (sub2) {
           gd.root = sub2;
           gd.dirCache = /* @__PURE__ */ new Map();
+          table = await findTable();
         }
       }
-      gd.ok = !!await gd._resolve("fnames/e/filename.bin");
+      gd.nameTable = table || NAME_TABLES[0];
+      gd.ok = !!table;
       return gd;
     }
     async _list(dir) {
@@ -888,15 +906,35 @@
     }
     return { s, t, c1: add(p1, scale(d1, s)), c2: add(p2, scale(d2, t)) };
   }
-  function bustParams(buf, costume) {
+  /** BustInfo.bin: 120-byte records (2 sides x 15 f32). Estival Versus: {i16, i16 nUniform} then the records, costume
+   *  % 174: Uniform 0..28, the rest from nUniform on. Peach Beach Splash (sub_14019e7b0 / sub_140194e65): {i32 default
+   *  record, i16 nA, i16 nB}, records from byte 8 in three tables: costume % 274 0..28 -> A, 29..223 -> B, 224.. -> C */
+  function bustParams(buf, costume, game = "estival") {
     const v = new DataView(buf);
-    const countA = v.getInt16(2, true);
-    let idx = costume % 174, ofs = 4;
-    if (idx > 28) {
-      ofs += countA * 120;
-      idx -= 29;
+    let ofs, idx;
+    if (game === "pbs") {
+      if (buf.byteLength < 8) return null;
+      const nA = v.getInt16(4, true), nB = v.getInt16(6, true), c = costume % 274;
+      if (c <= 28) {
+        idx = c;
+        ofs = 8 + idx * 120;
+      } else if (c <= 223) {
+        idx = c - 29;
+        ofs = 8 + (nA + idx) * 120;
+      } else {
+        idx = c - 224;
+        ofs = 8 + (nA + nB + idx) * 120;
+      }
+    } else {
+      const countA = v.getInt16(2, true);
+      idx = costume % 174;
+      ofs = 4;
+      if (idx > 28) {
+        ofs += countA * 120;
+        idx -= 29;
+      }
+      ofs += idx * 120;
     }
-    ofs += idx * 120;
     if (idx < 0 || ofs + 120 > buf.byteLength) return null;
     const out = [];
     for (let side = 0; side < 2; side++) {
@@ -905,6 +943,8 @@
       const cm = 0.01;
       out.push({ limit: [f[4] * cm, f[5] * cm, f[6] * cm, f[7] * cm, f[8] * cm, f[9] * cm], keep: f[12], spring: f[13] });
     }
+    // a record read from the wrong place shows as nonsense values: no bust physics rather than an exploding one
+    for (const sd of out) if (![...sd.limit, sd.keep, sd.spring].every((x) => Number.isFinite(x) && Math.abs(x) < 1e3)) return null;
     return out;
   }
   var Physics = class {
@@ -1622,9 +1662,10 @@
       if (!this.buffers.has(path)) this.buffers.set(path, await this.gd.read(path));
       return this.buffers.get(path);
     }
-    /** Fnames/E/filename.bin: {u32 1; u32 n; {u32 nameOfs; u32 packed}[n]} + names; entry i = asset id i */
+    /** Fnames/E/filename.bin (or Fnames/filenameEn.bin): {u32 1; u32 n; {u32 nameOfs; u32 packed}[n]} + names;
+     *  entry i = asset id i */
     async assetName(id) {
-      const fn = await this.file("Fnames/E/filename.bin");
+      const fn = await this.file(this.gd.nameTable || "Fnames/E/filename.bin");
       if (!fn || fn.byteLength < 8) return "";
       const v = new DataView(fn), n = v.getUint32(4, true);
       if (id >= n || 8 + 8 * id + 4 > fn.byteLength) return "";
@@ -1635,6 +1676,100 @@
     }
     async assetPath(id, fallback) {
       return await this.assetName(id) || fallback;
+    }
+    /** every asset name, and an index by lower-case stem (path without _H / _L and .cat / .bin) */
+    async names() {
+      if (this._names) return this._names;
+      const fn = await this.file(this.gd.nameTable || "Fnames/E/filename.bin");
+      const list = [], byName = /* @__PURE__ */ new Map(), byStem = /* @__PURE__ */ new Map();
+      if (fn && fn.byteLength >= 8) {
+        const v = new DataView(fn), u8 = new Uint8Array(fn), n = v.getUint32(4, true);
+        for (let i = 0; i < n && 8 + 8 * i + 4 <= fn.byteLength; i++) {
+          const o = v.getUint32(8 + 8 * i, true);
+          let s = "";
+          for (let k = o; k < u8.length && u8[k]; k++) s += String.fromCharCode(u8[k]);
+          s = s.replace(/\\/g, "/");
+          list.push(s);
+          const lo = s.toLowerCase();
+          if (!byName.has(lo)) byName.set(lo, i);
+          const stem = lo.replace(/(_[hl])?\.(cat|bin)$/, "");
+          if (!byStem.has(stem) || /_h\.cat$/.test(lo)) byStem.set(stem, i);
+        }
+      }
+      this._names = { list, byName, byStem };
+      return this._names;
+    }
+    /** asset path of the first stem that exists (the _H variant when there is one), else '' */
+    async find(...stems) {
+      const t = await this.names();
+      for (const st of stems) {
+        const i = t.byStem.get(st.toLowerCase());
+        if (i !== void 0) return t.list[i];
+      }
+      return "";
+    }
+    /** the table's layout: where the id-indexed blocks start. Estival Versus and the later games share the order of
+     *  each block but not the positions (costumes 0x3cd in Estival, 0x4fe in the newer table), so every block is
+     *  found by its first file's name */
+    async layout() {
+      if (this._layout) return this._layout;
+      const t = await this.names();
+      const at = (re, dflt) => {
+        const i = t.list.findIndex((s) => re.test(s.toLowerCase()));
+        return i >= 0 ? i : dflt;
+      };
+      const L = {
+        costume: at(/^model\/costume\/uniform\/00_00(_h)?\.cat$/, 973),
+        swim: at(/^model\/costume\/swim\/00_00(_h)?\.cat$/, 2913),
+        swim1: at(/^model\/costume\/swim\/01_00(_h)?\.cat$/, 2933),
+        bra: at(/^model\/costume\/bura\/00_00(_h)?\.cat$/, 2713),
+        bra1: at(/^model\/costume\/bura\/01_00(_h)?\.cat$/, 2733),
+        yureUni: at(/yure_unicos_00\.bin$/, 5008),
+        yureNinja: at(/yure_ninjacos_00\.bin$/, 5059),
+        yureCate: at(/yure_cate_mini\.bin$/, 4903),
+        yureHair: at(/yure_hr_00\.bin$/, 4908),
+        categoryList: at(/category_list\.bin$/, 4900),
+        bustInfo: at(/bustinfo\.bin$/, 4902),
+        face: at(/^model\/playable\/pl00_00\/pl00_00_h\.cat$/, -1),
+        acc: at(/^model\/acc\/acce_head00_00\.cat$/, -1),
+        braNone: at(/^model\/costume\/bura\/99_00(_h)?\.cat$/, -1)
+      };
+      L.swimRow = L.swim1 > L.swim ? L.swim1 - L.swim : 20;
+      L.braRow = L.bra1 > L.bra ? L.bra1 - L.bra : 20;
+      L.estival = L.costume === 973;
+      this._layout = L;
+      return L;
+    }
+    /** costume model of a global costume id */
+    /** 'plNN' (or 'npcNN') of a character index, from the face model's name in the asset table */
+    async charaName(ix) {
+      const L = await this.layout(), n = L.face >= 0 ? await this.assetName(L.face + ix) : "";
+      const m = /\/(pl\d+|npc\d+)_00_h\.cat$/i.exec(n);
+      return m ? m[1].toLowerCase() : "pl" + pad2(ix);
+    }
+    async facePath(ix) {
+      const L = await this.layout(), n = L.face >= 0 ? await this.assetName(L.face + ix) : "";
+      return /_00_h\.cat$/i.test(n) ? n : `Model/Playable/pl${pad2(ix)}_00/pl${pad2(ix)}_00_H.cat`;
+    }
+    async costumePath(id) {
+      const L = await this.layout(), n = await this.assetName(L.costume + id);
+      if (/^model\/costume\//i.test(n)) return n;
+      return id < 29 ? `Model/Costume/Uniform/${pad2(id)}_00_H.cat` : id < 74 ? `Model/Costume/Ninja/${pad2(id - 29)}_00_H.cat` : `Model/Costume/FreeCos/${pad2(id - 74)}_00_H.cat`;
+    }
+    /** physics file pair of an asset id: yure, and its collision (same path, collision_ for yure_) */
+    async physicsPair(yid, fbY) {
+      const y = (yid >= 0 ? await this.assetName(yid) : "") || fbY;
+      return [y, y ? y.replace(/yure_/, "collision_") : ""];
+    }
+    /** a file that is plain or wrapped in a .cat (data 0x50 bytes in), checked by valid(view, offset) */
+    async fileOrCat(path, valid) {
+      const bin = await this.file(path);
+      if (bin) return bin;
+      const cat = await this.file(path.replace(/\.bin$/i, ".cat"));
+      if (!cat) return null;
+      if (valid(cat, 80)) return cat.slice(80);
+      for (const e of parseCat(cat)) if (valid(cat, e.offset)) return cat.slice(e.offset, e.offset + e.size);
+      return null;
     }
     async model(path, want = "") {
       const key = path + ":" + want;
@@ -1661,8 +1796,75 @@
       return catTextures(buf, parseCat(buf), 1);
     }
   };
+  function cosinfoLayout(buf, o, exact) {
+    if (o + 16 > buf.byteLength) return null;
+    const v = new DataView(buf, o), size = buf.byteLength - o - 16;
+    if (v.getUint32(0, true) !== 1 || v.getUint32(4, true) !== 0) return null;
+    const nch = v.getUint32(8, true), ncos = v.getUint32(12, true);
+    if (!(nch > 0 && nch < 1e3 && ncos > 0 && ncos < 1e4)) return null;
+    for (let R = 24; R < 200; R += 4) {
+      const S = (R / 2 - 8) / 2;
+      if (!Number.isInteger(S) || S < 1 || nch * R > size) continue;
+      let ok = true;
+      for (let c = 0; c < nch && ok; c++) {
+        const b = 16 + R * c;
+        for (let k = 0; k < 2; k++) {
+          const x = v.getUint16(b + 2 * k, true);
+          if (x >= ncos && x !== 65535) ok = false;
+        }
+        for (let k = 0; k < S; k++) if (v.getUint16(b + 2 * (4 + S + k), true) > 2) ok = false;
+      }
+      if (!ok) continue;
+      for (const C of [8, 12, 16, 20, 24]) {
+        const need = nch * R + ncos * C;
+        if (need > size || exact && need !== size) continue;
+        let good = true;
+        for (let k = 0; k < ncos && good; k++) {
+          const b = 16 + nch * R + C * k;
+          if (v.getUint32(b, true) > 16 || v.getUint16(b + 4, true) > 1 || v.getUint16(b + 6, true) > 1) good = false;
+        }
+        if (good) return { nch, ncos, R, C, S };
+      }
+    }
+    return null;
+  }
+  /** blobs of a parameter catalogue as the later game reads them (sub_140398000 + the entry's offset list): entry =
+   *  cat + u32[0xc]; blob k = entry + u32[entry + 0x14 + 4k], size u32[entry + 0x14 + 4n + 4k], n = u32[entry + 4] */
+  function paramBlobs(buf) {
+    if (!buf || buf.byteLength < 0x40) return [];
+    const v = new DataView(buf), e = v.getUint32(12, true);
+    if (e + 0x18 > buf.byteLength) return [];
+    const n = v.getUint32(e + 4, true), out = [];
+    if (!(n > 0 && n < 64) || e + 0x14 + 8 * n > buf.byteLength) return [];
+    for (let k = 0; k < n; k++) {
+      const off = e + v.getUint32(e + 0x14 + 4 * k, true), size = v.getUint32(e + 0x14 + 4 * n + 4 * k, true);
+      if (off + size > buf.byteLength) return [];
+      out.push({ offset: off, size });
+    }
+    return out;
+  }
+  async function cosinfoData(lib) {
+    const bin = await lib.file("Binary/Param/Player/cosinfo.bin");
+    if (bin && cosinfoLayout(bin, 0, true)) return { buf: bin, lay: cosinfoLayout(bin, 0, true) };
+    const cat = await lib.file("Binary/Param/Player/cosinfo.cat");
+    if (!cat) return null;
+    const blobs = paramBlobs(cat);
+    if (blobs.length >= 2) {
+      const lay2 = cosinfoLayout(cat, blobs[0].offset, false);
+      // Peach Beach Splash: blob 0 cosinfo, blob 1 the costume extras (20 B per costume: bundled accessories)
+      if (lay2 && blobs[1].size >= 20 * lay2.ncos) return { buf: cat.slice(blobs[0].offset), lay: lay2, extra: cat.slice(blobs[1].offset, blobs[1].offset + blobs[1].size) };
+    }
+    let lay = cosinfoLayout(cat, 80, false);
+    if (lay) return { buf: cat.slice(80), lay };
+    for (const e of parseCat(cat)) {
+      lay = cosinfoLayout(cat, e.offset, false);
+      if (lay) return { buf: cat.slice(e.offset), lay };
+    }
+    lib.log("cosinfo.cat: no cosinfo data found");
+    return null;
+  }
   async function readOutfit(lib, chara) {
-    const buf = await lib.file("Binary/Param/Player/cosinfo.bin");
+    const got = await cosinfoData(lib);
     const o = {
       costume: [chara, 29 + chara],
       underwear: [chara, chara],
@@ -1671,44 +1873,162 @@
       accAux: [],
       braType: () => 0,
       flags: () => ({ noDamage: false, noUnderwear: false }),
-      costumeCount: 174
+      costumeCount: 173,
+      nChara: 35,
+      layout: ""
     };
-    if (!buf) {
-      lib.log("no cosinfo.bin: guessing the costume files from the index");
+    if (!got) {
+      lib.log("no cosinfo.bin / cosinfo.cat: guessing the costume files from the index");
       return o;
     }
-    const v = new DataView(buf), nch = v.getUint32(8, true), ncos = v.getUint32(12, true);
+    const { buf, lay } = got, v = new DataView(buf), { nch, ncos, R, C, S } = lay;
+    o.nChara = nch;
+    o.costumeCount = ncos;
+    o.layout = `${nch} characters x ${R} B, ${ncos} costumes x ${C} B`;
+    if (R === 48 && C === 12) return readOutfitPBS(o, chara, got);
     if (chara >= nch) return o;
     const r = [];
-    for (let k = 0; k < 28; k++) {
-      const x = v.getUint16(16 + 56 * chara + 2 * k, true);
+    for (let k = 0; k < R / 2; k++) {
+      const x = v.getUint16(16 + R * chara + 2 * k, true);
       r.push(x === 65535 ? -1 : x);
     }
     o.costume = [r[0], r[1]];
     o.underwear = [r[2], r[3]];
-    o.hair = [r[24], r[25], r[26]];
-    o.acc = r.slice(4, 14);
-    o.accAux = r.slice(14, 24);
+    o.acc = r.slice(4, 4 + S);
+    o.accAux = r.slice(4 + S, 4 + 2 * S);
+    o.hair = r.slice(4 + 2 * S, 7 + 2 * S);
+    const rec = (costume) => {
+      const c = ncos <= 174 ? costume % 174 : costume;
+      return c < ncos ? 16 + R * nch + C * c : -1;
+    };
     o.braType = (costume) => {
-      const c = costume % 174, off = 16 + 56 * nch + 8 * c;
-      return c < ncos && off + 4 <= buf.byteLength ? v.getUint32(off, true) : 0;
+      const off = rec(costume);
+      return off >= 0 ? v.getUint32(off, true) : 0;
     };
     o.flags = (costume) => {
-      const c = costume % 174, off = 16 + 56 * nch + 8 * c;
-      if (c >= ncos || off + 8 > buf.byteLength) return { noDamage: false, noUnderwear: false };
+      const off = rec(costume);
+      if (off < 0) return { noDamage: false, noUnderwear: false };
       return { noDamage: v.getUint16(off + 4, true) !== 0, noUnderwear: v.getUint16(off + 6, true) !== 0 };
     };
-    o.costumeCount = ncos;
     return o;
+  }
+
+  // ---- Senran Kagura Peach Beach Splash (cosinfo.cat with 48-byte rows; read as SKPeachBeachSplash.exe does)
+  /** character row (24 x i16), sub_14007ff60: [0] [1] costume ids, [2] swimsuit (Swim/(u/60)_(u%60)), [4..11] eight
+   *  accessories, [20] hair; [3], [12..19], [21..23] are not read by the game. Costume record (12 B, id % 274):
+   *  u32 bra type, u16 no damage, u16 (pants mesh flag, not "no underwear"), u32 no bra (Bura/99_00). Extras (20 B per
+   *  costume, cosinfo.cat blob 1): u32 flags, i16 acc[3] worn with the costume, u16, u16 accessory follows the
+   *  costume's colour variant (+ (id / 274) * 790), u16, u32 */
+  function readOutfitPBS(o, chara, got) {
+    const { buf, lay, extra } = got, v = new DataView(buf), { nch, ncos, R } = lay;
+    o.game = "pbs";
+    o.layout += ", Peach Beach Splash layout";
+    if (chara >= nch) return o;
+    const r = [];
+    for (let k = 0; k < R / 2; k++) r.push(v.getInt16(16 + R * chara + 2 * k, true));
+    o.costume = [r[0], r[1]];
+    o.underwear = [r[2], r[2]];
+    o.acc = r.slice(4, 12);
+    o.accAux = o.acc.map(() => -1);
+    o.hair = [r[20], r[20], -1];
+    o.hairFile = (side) => pbsHair(chara, o.hair[side]);
+    const rec = (c) => c >= 0 ? 16 + R * nch + 12 * (c % ncos) : -1;
+    o.braType = (c) => rec(c) >= 0 ? v.getUint32(rec(c), true) : 1;
+    o.noBra = (c) => rec(c) >= 0 && v.getUint32(rec(c) + 8, true) !== 0;
+    o.flags = (c) => ({ noDamage: rec(c) >= 0 && v.getUint16(rec(c) + 4, true) !== 0, noUnderwear: false });
+    o.ownPants = (c) => rec(c) >= 0 && v.getUint16(rec(c) + 6, true) !== 0;
+    o.costumeAcc = (c) => {
+      if (!extra || c < 0) return [];
+      const x = new DataView(extra), b = 20 * (c % ncos), ids = [];
+      if (b + 20 > extra.byteLength) return [];
+      const shift = x.getUint16(b + 12, true) ? Math.floor(c / ncos) * 790 : 0;
+      for (let k = 0; k < 3; k++) {
+        const id = x.getInt16(b + 4 + 2 * k, true);
+        if (id >= 0) ids.push(id + shift);
+      }
+      return ids;
+    };
+    return o;
+  }
+  /** Peach Beach Splash hair colour (sub_140125a90): a hair model's base texture ('...hair00_EE', e.g. hr109's grey
+   *  placeholder pl101_hair00_EE, or swap_hair00_EE) is replaced by the face catalogue's hairNN_EE for colour option NN
+   *  (00 = the character's own colour; 01..04 the others), its normal map by hairNN_nml_EE when the face has one */
+  var PBS_CLEAR = new Uint8Array(4);
+  function pbsHairSwap(textures, faceTextures, option = 0) {
+    const pick = (name) => faceTextures.filter((t) => t.name.toLowerCase() === name).sort((a, b) => (b.group >= 1) - (a.group >= 1) || b.width * b.height - a.width * a.height)[0];
+    const col = pick(`hair${pad2(option)}_ee`), nml = pick(`hair${pad2(option)}_nml_ee`);
+    return textures.map((t) => {
+      const n = (t.name || "").toLowerCase();
+      if (col && /hair00_ee$/.test(n)) return { ...col, hash: t.hash };
+      if (nml && /hair00_nml_ee$/.test(n)) return { ...nml, hash: t.hash };
+      return t;
+    });
+  }
+  /** hair pairs (sub_140081320 / sub_140081470): a pairable hair worn by a character whose own hair it is not loads its
+   *  partner file (hr00..32 <-> hr47..79 and fixed pairs above 80) */
+  var PBS_HAIR_BASE = { 87: 85, 88: 86, 89: 84, 96: 95, 98: 97, 100: 99, 101: 80, 102: 81, 103: 82, 104: 83, 123: 122, 125: 124, 127: 126, 129: 128, 131: 130, 133: 132, 135: 134, 137: 136 };
+  var PBS_HAIR_ALT = { 80: 101, 81: 102, 82: 103, 83: 104, 84: 89, 85: 87, 86: 88, 95: 96, 97: 98, 99: 100, 122: 123, 124: 125, 126: 127, 128: 129, 130: 131, 132: 133, 134: 135, 136: 137 };
+  var PBS_HAIR_OWN = { 33: 85, 34: 86, 35: 95, 36: 97, 37: 99, 38: 80, 39: 81, 40: 82, 41: 83, 42: 126, 43: 128, 44: 130, 45: 122, 46: 124, 48: 134, 49: 132, 50: 136, 58: 149, 59: 148 };
+  function pbsHairOwn(chara, side) {
+    if (chara === 25 && side) return 84;
+    return PBS_HAIR_OWN[chara] !== void 0 ? PBS_HAIR_OWN[chara] : chara;
+  }
+  function pbsHair(chara, hair, param = 0) {
+    if (hair < 0) return pbsHairOwn(chara, 0);
+    const base = hair >= 47 && hair <= 79 ? hair - 47 : PBS_HAIR_BASE[hair] !== void 0 ? PBS_HAIR_BASE[hair] : hair;
+    const pairable = base >= 0 && base <= 32 || base >= 80 && base <= 86 || base >= 95 && base <= 137;
+    if (!pairable) return base;
+    if ((base === pbsHairOwn(chara, 0) || base === pbsHairOwn(chara, 1)) && param < 1) return base;
+    return base <= 32 ? base + 47 : PBS_HAIR_ALT[base] !== void 0 ? PBS_HAIR_ALT[base] : base;
+  }
+  /** accessory id (0..7899): record id % 790, colour variant id / 790, file Model/Acc/<stem>_<variant> = asset
+   *  0x1247 + id */
+  var PBS_ACC_KINDS = [["acce_head", 100], ["acce_face", 50], ["acce_body", 50], ["acce_arm", 50], ["acce_leg", 50], ["richacce_head", 50], ["richacce_body", 50], ["extacce", 50], ["kokesi", 60], ["hata", 60], ["uchiwa", 60], ["daki", 60], ["canbadge", 100]];
+  function pbsAccessoryRef(id) {
+    const r = { record: -1, variant: 0, stem: "" };
+    if (id < 0 || id > 7899) return r;
+    r.record = id % 790;
+    r.variant = Math.floor(id / 790);
+    let n = r.record;
+    for (const [k, c] of PBS_ACC_KINDS) {
+      if (n < c) {
+        r.stem = `${k}${pad2(n)}_${pad2(r.variant)}`;
+        break;
+      }
+      n -= c;
+    }
+    return r;
+  }
+  /** accoffset.cat: blob 0 {u32 n; n x 40 B: f32 offset[3], f32 rotDeg[3], u16 attach, i16, u16, u8, i8, i16 effect[3],
+   *  u16}, blob 1 per character n x 32 B {f32 offset[3], f32 rotDeg[3], u16 attach} (sub_140080150); attach indexes
+   *  the game's attach point list */
+  var PBS_ATTACH = ["head", "neck", "bust_R00", "bust_L00", "thorax", "hips", "shoulder_R", "elbow_R", "hand_R", "shoulder_L", "elbow_L", "hand_L", "groin_R", "knee_R", "ankle_R", "groin_L", "knee_L", "ankle_L"];
+  async function pbsAccOffsets(lib) {
+    if (lib._pbsAcc !== void 0) return lib._pbsAcc;
+    lib._pbsAcc = null;
+    const cat = await lib.file("Binary/Param/Player/accoffset.cat");
+    const blobs = paramBlobs(cat);
+    if (blobs.length >= 2) {
+      const v = new DataView(cat), n = v.getUint32(blobs[0].offset, true);
+      if (n > 0 && 4 + 40 * n <= blobs[0].size && blobs[1].size % (32 * n) === 0) lib._pbsAcc = { v, n, glob: blobs[0].offset + 4, chara: blobs[1].offset, nChara: blobs[1].size / (32 * n) };
+    }
+    if (!lib._pbsAcc) lib.log("accoffset.cat: no Peach Beach Splash offset tables found");
+    return lib._pbsAcc;
+  }
+  function pbsAccPlacement(t, chara, record) {
+    const g = t.glob + 40 * record, c = chara < t.nChara ? t.chara + 32 * (chara * t.n + record) : g;
+    const f = (o, k) => t.v.getFloat32(o + 4 * k, true);
+    const attach = t.v.getUint16(c + 24, true);
+    return { off: [f(c, 0), f(c, 1), f(c, 2)], rot: [f(c, 3), f(c, 4), f(c, 5)], bone: PBS_ATTACH[attach] || "head", effect: t.v.getInt16(g + 32, true) >= 0 };
   }
   function bustVariant(chara, costume) {
     return chara === 8 || chara === 18 && costume === 0 ? 0 : 1;
   }
   async function skirtGroup(lib, costume) {
-    const name = await lib.assetName(4900);
+    const name = await lib.assetName((await lib.layout()).categoryList);
     const buf = name ? await lib.file(name) : null;
     if (!buf || buf.byteLength < 8) return -1;
-    const v = new DataView(buf), c = costume % 174, dflt = v.getInt32(0, true), ng = v.getInt32(4, true);
+    const v = new DataView(buf), c = costume, dflt = v.getInt32(0, true), ng = v.getInt32(4, true);
     let off = 0;
     for (let g = 0; g < ng; g++) {
       const b = 8 + off;
@@ -1775,6 +2095,11 @@
       else hide = has(s, ls.act ? "EVT" : "ACT");
       hidden[i] = hide ? 1 : 0;
     }
+    if (ls.pnt !== void 0 && ls.pnt >= 0)
+      for (let i = 0; i < n; i++) {
+        const s = tags[i];
+        if (s && has(s, "PNT") && !hidden[i] && !has(s, "PNT" + ls.pnt)) hidden[i] = 1;   // PBS: the swimsuit shape's pants
+      }
     for (let i = 0; i < n; i++) {
       if (has(tags[i], "CHG0") && ls.changed) hidden[i] = 1;
       if (has(tags[i], "CHG1") && !ls.changed) hidden[i] = 1;
@@ -1825,11 +2150,11 @@
     async load(progress = () => {
     }) {
       const lib = this.lib, ix = this.index;
-      this.name = "pl" + pad2(ix);
+      this.name = await lib.charaName(ix);
       this.outfit = await readOutfit(lib, ix);
       progress("face");
-      this.face = await lib.model(`Model/Playable/pl${pad2(ix)}_00/pl${pad2(ix)}_00_H.cat`);
-      const fm = await lib.file(`Motion/Adv/pl${pad2(ix)}_facemot.cat`);
+      this.face = await lib.model(await lib.facePath(ix));
+      const fm = await lib.file(`Motion/Adv/${this.name}_facemot.cat`);
       if (fm && this.face) {
         try {
           for (const m of motionsFromBuffer(fm, "facemot")) {
@@ -1840,7 +2165,7 @@
         } catch (e) {
           this.note("face motions: " + e.message);
         }
-      } else if (this.face) this.note(`no Motion/Adv/pl${pad2(ix)}_facemot.cat`);
+      } else if (this.face) this.note(`no Motion/Adv/${this.name}_facemot.cat`);
       for (const c of [1, 0]) {
         if (c === 0 && this.outfit.costume[0] === this.outfit.costume[1]) continue;
         progress(c ? "shinobi costume" : "everyday costume");
@@ -1871,8 +2196,8 @@
       const slot = c === 1 ? 1 : 0;
       if (id < 0) throw new Error("no costume id");
       const flags = o.flags(id);
-      const fallback = id < 29 ? `Model/Costume/Uniform/${pad2(id)}_00_H.cat` : id < 74 ? `Model/Costume/Ninja/${pad2(id - 29)}_00_H.cat` : `Model/Costume/FreeCos/${pad2(id - 74)}_00_H.cat`;
-      const catPath = await lib.assetPath(973 + id, fallback);
+      const L = await lib.layout();
+      const catPath = await lib.costumePath(id);
       const bodyModel = await lib.model(catPath);
       if (!bodyModel) throw new Error("cannot load " + catPath);
       const rig = { costume: slot, costumeId: id, flags, label: catPath.split("/").slice(-2).join("/"), body: newPose(bodyModel), parts: [], accs: [], boneAdjust: null };
@@ -1903,39 +2228,63 @@
           }
         }
       }
-      const hairId = o.hair[slot] >= 0 ? o.hair[slot] : ix;
-      const hair = await lib.model(`Model/Playable/hr${pad2(hairId)}/hr${pad2(hairId)}_H.cat`);
+      const hairId = o.hairFile ? o.hairFile(slot) : o.hair[slot] >= 0 ? o.hair[slot] : ix;
+      const hairPath = await lib.find(`Model/Playable/hr${pad2(hairId)}/hr${pad2(hairId)}`, `Model/Playable/hair/hr${pad2(hairId)}`) || `Model/Playable/hr${pad2(hairId)}/hr${pad2(hairId)}_H.cat`;
+      const hair = await lib.model(hairPath);
       const u = o.underwear[slot];
       let pants = null, bura = null;
       if (u >= 0) {
-        const swim = u < 120 ? 2913 + u : 7282 + (u - 120);
-        if (!flags.noUnderwear) pants = await lib.model(await lib.assetPath(swim, `Model/Costume/Swim/${pad2(Math.floor(u / 20))}_${pad2(u % 20)}_H.cat`));
+        const est = L.estival && u >= 120, sr = L.swimRow, br = L.braRow;
+        const swim = est ? 7282 + (u - 120) : L.swim + u;
+        if (!flags.noUnderwear) pants = await lib.model(await lib.assetPath(swim, `Model/Costume/Swim/${pad2(Math.floor(u / sr))}_${pad2(u % sr)}_H.cat`));
         const type = Math.max(0, o.braType(id));
-        const bra = u < 120 ? 2713 + type * 20 + u % 20 : 7202 + type * 20 + (u - 120) % 20;
-        bura = await lib.textureSet(await lib.assetPath(bra, `Model/Costume/Bura/${pad2(type)}_${pad2(u % 20)}_H.cat`));
+        const noBra = o.noBra && o.noBra(id) && L.braNone >= 0;
+        const bra = noBra ? L.braNone : est ? 7202 + type * 20 + (u - 120) % 20 : L.bra + type * br + u % br;
+        bura = await lib.textureSet(await lib.assetPath(bra, `Model/Costume/Bura/${pad2(type)}_${pad2(u % br)}_H.cat`));
       }
       const face = this.face;
       rig.body.textures = resolveTextures(bodyModel.textures, [bodyModel.textures, face && face.textures, hair && hair.textures, pants && pants.textures, bura]);
+      if (o.game === "pbs") {
+        // wetbura00_EE in a costume is a placeholder the game swaps for the character's bra; without a bra file that has
+        // one, nothing shows through (rather than the placeholder drawing)
+        const own = new Set(bodyModel.textures.filter((t) => t.name.toLowerCase() === "wetbura00_ee"));
+        rig.body.textures = rig.body.textures.map((t) => own.has(t) ? { ...t, width: 1, height: 1, rgba: PBS_CLEAR } : t);
+      }
       const yure = [], coll = [];
-      const add2 = async (yid, fbY, fbC) => {
-        const y = await lib.file(await lib.assetPath(yid, fbY)), col = await lib.file(await lib.assetPath(yid + 501, fbC));
+      const add2 = async (yid, fbY) => {
+        const [yp, cp] = await lib.physicsPair(yid, fbY);
+        const y = yp ? await lib.file(yp) : null, col = cp ? await lib.file(cp) : null;
         if (y) yure.push(y);
         if (col) coll.push(col);
       };
-      if (id < 29) await add2(5008 + id, `Binary/physics/Uniform/yure_unicos_${pad2(id)}.bin`, `Binary/physics/Uniform/collision_unicos_${pad2(id)}.bin`);
-      else if (id < 74) await add2(5059 + id - 29, `Binary/physics/Ninja/yure_ninjacos_${pad2(id - 29)}.bin`, `Binary/physics/Ninja/collision_ninjacos_${pad2(id - 29)}.bin`);
-      else await add2(5059 + id - 29, "", "");
+      if (o.game === "pbs") {
+        const m = /\/(uniform|ninja|freecos|nrskcos)\/([0-9a-z]+)_\d+(_h)?\.cat$/i.exec(catPath);
+        const pre = m && { uniform: "Uniform/yure_unicos_", ninja: "Ninja/yure_ninjacos_", freecos: "Freecos/yure_freecos_", nrskcos: "NrskCos/yure_nsc_" }[m[1].toLowerCase()];
+        if (pre) {
+          const yp = await lib.find(`Binary/physics/${pre}${m[2]}`);
+          if (yp) await add2(-1, yp);
+        }
+      } else if (id < 29) await add2(L.yureUni + id, `Binary/physics/Uniform/yure_unicos_${pad2(id)}.bin`);
+      else if (id < 74) await add2(L.yureNinja + id - 29, `Binary/physics/Ninja/yure_ninjacos_${pad2(id - 29)}.bin`);
+      else await add2(L.yureNinja + id - 29, "");
       const group = await skirtGroup(lib, id);
-      if (group >= 0) await add2(4903 + group, "", "");
-      await add2(4908 + hairId, `Binary/physics/hr/yure_hr_${pad2(hairId)}.bin`, `Binary/physics/hr/collision_hr_${pad2(hairId)}.bin`);
-      const bustBuf = await lib.file(await lib.assetPath(4902, "Binary/physics/BustInfo.bin"));
+      if (group >= 0) await add2(L.yureCate + group, "");
+      await add2(L.yureHair + hairId, `Binary/physics/hr/yure_hr_${pad2(hairId)}.bin`);
+      const bustBuf = await lib.file(await lib.assetPath(L.bustInfo, "Binary/physics/BustInfo.bin"));
       const ph = new Physics(rig.body);
       for (const y of yure) ph.addYure(y, true);
       for (const col of coll) ph.addCollision(col);
-      ph.setupBust(bustBuf ? bustParams(bustBuf, id) : null);
+      ph.setupBust(bustBuf ? bustParams(bustBuf, id, o.game) : null);
       rig.body.physics = ph.active ? ph : null;
       rig.collisions = coll;
       const head = bodyModel.findBone(hash("head"));
+      if (o.game === "pbs") {
+        // the costume draws the swimsuit bottom itself (meshes tagged PNT0..PNT5, one per Swim row = shape) with the
+        // Swim file's textures; the separate Swim model is then left out (sub_14012a0df: PNT meshes or record +6)
+        rig.pnt = u >= 0 ? Math.floor(u / L.swimRow) : -1;
+        const ownPants = bodyModel.meshTags.some((t) => t && t.includes("PNT")) || o.ownPants && o.ownPants(id);
+        if (ownPants) pants = null;
+      }
       for (const [part, bone, kind] of [[face, head, "face"], [hair, head, "hair"], [pants, 0, "pants"]]) {
         if (!part) continue;
         const p = newPose(part);
@@ -1954,6 +2303,7 @@
           });
         }
         p.textures = resolveTextures(part.textures, [part.textures, face && face.textures, hair && hair.textures]);
+        if (kind === "hair" && o.game === "pbs" && face) p.textures = pbsHairSwap(p.textures, face.textures, 0);
         if (kind === "pants") {
           const tights = rig.body.textures.find((t) => t.hash === hash("tights00_00_EE"));
           if (tights) p.textures = p.textures.map((t) => t.hash === hash("swim_blend00_EE") ? { ...tights, hash: t.hash } : t);
@@ -1975,13 +2325,15 @@
     async attachWeapons(rig, yure, coll) {
       const lib = this.lib, ix = this.index;
       const info = await lib.file("Binary/Param/Player/weaponinfo.bin");
-      if (!info || info.byteLength < 10080) return;
-      const v = new DataView(info), u8 = new Uint8Array(info), names = 35 * 8 * 16, lists = names + 35 * 8 * 4;
+      const nch = info ? Math.floor(info.byteLength / 288) : 0;
+      if (!info || nch <= ix || info.byteLength % 288) return;
+      const v = new DataView(info), u8 = new Uint8Array(info), names = nch * 8 * 16, lists = names + nch * 8 * 4;
+      const wpnPath = await lib.find(`Model/Playable/wpn${pad2(ix)}/wpn${pad2(ix)}`, `Model/Playable/weapon/wpn${pad2(ix)}`) || `Model/Playable/wpn${pad2(ix)}/wpn${pad2(ix)}_H.cat`;
       for (let k = 0; k < 8; k++) {
         let bone = "";
         for (let i = 0; i < 16 && u8[(ix * 8 + k) * 16 + i]; i++) bone += String.fromCharCode(u8[(ix * 8 + k) * 16 + i]);
         if (!bone || !v.getInt32(names + (ix * 8 + k) * 4, true)) continue;
-        const model = await lib.model(`Model/Playable/wpn${pad2(ix)}/wpn${pad2(ix)}_H.cat`, `pl${pad2(ix)}_weapon${pad2(k)}`);
+        const model = await lib.model(wpnPath, `pl${pad2(ix)}_weapon${pad2(k)}`);
         const bi = rig.body.model.findBone(hash(bone));
         if (!model || bi < 0) continue;
         const p = newPose(model);
@@ -2003,8 +2355,9 @@
       }
     }
     async attachAccessories(rig, c) {
+      if (this.outfit.game === "pbs") return this.attachAccessoriesPBS(rig);
       const lib = this.lib, o = this.outfit;
-      const offs = await lib.file("Binary/Param/Player/accoffset.bin");
+      const offs = await lib.fileOrCat("Binary/Param/Player/accoffset.bin", (b, o2) => o2 + 4 <= b.byteLength && o2 + 4 + 48 * new DataView(b, o2).getUint32(0, true) <= b.byteLength);
       for (let k = 0; k < o.acc.length; k++) {
         const id = o.acc[k];
         if (id < 0) continue;
@@ -2012,7 +2365,8 @@
         if (aux === 0 && c !== 0 || aux === 1 && c !== 1) continue;
         const ref = accessoryRef(id);
         if (ref.record < 0) continue;
-        const model = await lib.model(await lib.assetPath(ref.asset, `Model/Acc/${ref.stem}.cat`));
+        const byName = await lib.find(`Model/Acc/${ref.stem}`);
+        const model = await lib.model(byName || await lib.assetPath(ref.asset, `Model/Acc/${ref.stem}.cat`));
         if (!model) continue;
         let off = [0, 0, 0], rot = [0, 0, 0], bone = "head";
         if (offs && 4 + 48 * (ref.record + 1) <= offs.byteLength) {
@@ -2029,6 +2383,49 @@
           continue;
         }
         const d2r = Math.PI / 180;
+        const a = newPose(model);
+        a.attachBone = bi;
+        a.local = mul(eulerXYZ(rot[0] * d2r, rot[1] * d2r, rot[2] * d2r), translation(off[0], off[1], off[2]));
+        if (model.numBones > 0) {
+          const y = await lib.file(`Binary/physics/Acc/yure_${ref.stem}.bin`);
+          if (y) {
+            const ph = new Physics(a);
+            ph.addYure(y, true);
+            const col = await lib.file(`Binary/physics/Acc/collision_${ref.stem}.bin`);
+            if (col) ph.addCollision(col, rig.body);
+            for (const cb of rig.collisions) ph.addCollision(cb, rig.body);
+            a.physics = ph.active ? ph : null;
+          }
+        }
+        rig.accs.push(a);
+      }
+    }
+    /** Peach Beach Splash: the outfit's 8 accessories and the ones the costume comes with (cosinfo extras), placed by
+     *  accoffset.cat (per character offset / rotation and attach point) */
+    async attachAccessoriesPBS(rig) {
+      const lib = this.lib, o = this.outfit, L = await lib.layout(), ix = this.index;
+      const t = await pbsAccOffsets(lib);
+      const ids = [...o.acc.filter((id) => id >= 0), ...(o.costumeAcc ? o.costumeAcc(rig.costumeId) : [])];
+      const seen = /* @__PURE__ */ new Set();
+      for (const id of ids) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const ref = pbsAccessoryRef(id);
+        if (ref.record < 0 || !ref.stem) continue;
+        const place = t ? pbsAccPlacement(t, ix, ref.record) : { off: [0, 0, 0], rot: [0, 0, 0], bone: "head", effect: false };
+        if (place.effect) {
+          this.note(`accessory ${ref.stem}: an effect accessory (effectacc_base), not drawn`);
+          continue;
+        }
+        const path = (L.acc >= 0 ? await lib.assetName(L.acc + id) : "") || await lib.find(`Model/Acc/${ref.stem}`) || `Model/Acc/${ref.stem}.cat`;
+        const model = await lib.model(path);
+        if (!model) continue;
+        const bi = rig.body.model.findBone(hash(place.bone));
+        if (bi < 0) {
+          this.note(`accessory ${ref.stem}: no bone ${place.bone}`);
+          continue;
+        }
+        const d2r = Math.PI / 180, { off, rot } = place;
         const a = newPose(model);
         a.attachBone = bi;
         a.local = mul(eulerXYZ(rot[0] * d2r, rot[1] * d2r, rot[2] * d2r), translation(off[0], off[1], off[2]));
@@ -2064,7 +2461,7 @@
     applyLayer(rig) {
       const state2 = rig.flags && rig.flags.noDamage && ["BRK0", "BRK1", "BRK2"].includes(this.layer) ? "NTRL" : this.layer;
       rig.layerShown = state2;
-      const ls = { state: state2, bigBust: rig.bust !== 0, act: true, changed: false, costumeState: rig.costume, original: true };
+      const ls = { state: state2, bigBust: rig.bust !== 0, act: true, changed: false, costumeState: rig.costume, original: true, pnt: rig.pnt };
       for (const p of [rig.body, ...rig.parts]) p.meshHidden = layerHidden(p.model, ls);
     }
     get rig() {
@@ -2206,12 +2603,12 @@
   // src/render.js
   var VS = `precision highp float; precision highp int; precision highp sampler2D;
 in vec3 aPos; in vec4 aWeights; in vec4 aIdx; in vec3 aNormal; in vec4 aColor; in vec2 aUV;
-in vec3 aTangent; in vec3 aBinormal; in vec2 aUV1;
+in vec3 aTangent; in vec3 aBinormal; in vec2 aUV1; in vec2 aUV2;
 uniform mat4 projectionMatrix, viewMatrix;
 uniform mat4 uMesh;
 uniform sampler2D uBones, uT5;
 uniform vec4 uParam[8];
-uniform int uSkinned, uShader;
+uniform int uSkinned, uShader, uSkinUV, uBreakUV;
 uniform vec3 uLightDir, uEyeDir, uToonLight;
 out vec3 vNormal; out vec3 vWorld; out vec4 vColor; out vec2 vUV; out vec2 vUV1;
 out vec3 vLts; out vec3 vEts; out vec3 vClip; out vec3 vHeadClip;
@@ -2231,15 +2628,19 @@ void main() {
   vec4 world = uMesh * (S * vec4(aPos, 1.0));
   mat3 M = mat3(uMesh) * mat3(S);
   vec3 N = normalize(M * aNormal), T = normalize(M * aTangent), B = normalize(M * aBinormal);
-  vWorld = world.xyz; vNormal = N; vColor = aColor; vUV = aUV; vUV1 = aUV1;
+  vWorld = world.xyz; vNormal = N; vColor = aColor; vUV = aUV;
+  // PBS see-through shaders: skin / underwear from uv1 when the model has it (and, for the breakable ones, a uv2 too)
+  vUV1 = uShader >= 6 && uShader <= 8 ? (uSkinUV == 1 ? aUV1 : aUV) : aUV1;
   vec3 L = -uLightDir, E = -uEyeDir;
   vLts = vec3(dot(L, T), dot(L, B), dot(L, N));
   if (uShader == 3) vLts = vec3(dot(uToonLight, aTangent), dot(uToonLight, aBinormal), dot(uToonLight, aNormal));
   vEts = vec3(dot(E, T), dot(E, B), dot(E, N));
   // CSBB: the break threshold scrolls with m_Param[2].x (channel 8, keyframed break progress); uv1.y = piece delay
-  vHeightUV = vec2(aUV1.x, 2.0 - aUV1.y + uParam[2].x);
-  vHeight = uShader == 5 ? textureLod(uT5, vec2(vHeightUV.x, clamp(vHeightUV.y, 1.0 / 64.0, 1.0 - 1.0 / 64.0)), 1.0).r : 0.0;
-  vBreakUV = aUV1 - vec2(0.0, 1.0);
+  // Peach Beach Splash CSBB / CSTB (uShader 8): the same from uv0
+  vec2 bUV = uShader == 8 ? (uBreakUV == 2 ? aUV2 : uBreakUV == 1 ? aUV1 : aUV) : aUV1;
+  vHeightUV = vec2(bUV.x, 2.0 - bUV.y + uParam[2].x);
+  vHeight = uShader == 5 || uShader == 8 ? textureLod(uT5, vec2(vHeightUV.x, clamp(vHeightUV.y, 1.0 / 64.0, 1.0 - 1.0 / 64.0)), 1.0).r : 0.0;
+  vBreakUV = bUV - vec2(0.0, 1.0);
   mat4 VP = projectionMatrix * viewMatrix;
   gl_Position = VP * world;
   vClip = gl_Position.xyz;
@@ -2254,7 +2655,7 @@ uniform vec4 uParam[8];
 uniform vec4 uRim;
 uniform vec4 uChara;
 uniform vec3 uEyeDir;
-uniform sampler2D uT0, uT1, uT2, uT5, uT6;
+uniform sampler2D uT0, uT1, uT2, uT3, uT4, uT5, uT6;
 out vec4 oColor;
 float ch(int k) { return uParam[k / 4][k % 4]; }
 float hl(vec3 a, vec3 b) { return max((dot(a, b) + 1.0) * 0.5, 0.0); }
@@ -2305,6 +2706,41 @@ void main() {
     col += exp(lg * ch(9)) * vec3(ch(6), ch(7), ch(8)) * mask;
     float t = lpow(hl(L, n), ch(16));
     col -= Ramp(t) * vec3(ch(1), ch(2), ch(3)) * ch(0);
+    oColor = vec4(col, uBlend != 0 ? c.a : 1.0);
+    return;
+  }
+  if (uShader == 6 || uShader == 7) {   // PBS CST0 / CST1 (NrskCos): wet costume, skin and underwear show through
+    vec4 c = mix(texture(uT0, vUV), texture(uT2, vUV), uChara.x);         // WetTexture2 blended in by the wetness
+    vec4 sk = texture(uT3, vUV1), uw = texture(uT4, vUV1);                // SkinTexture3, UnderWearTexture4
+    vec3 under = sk.rgb * (1.0 - uw.a) + uw.rgb * uw.a;
+    vec3 col = under * (1.0 - c.a) + c.rgb * c.a + uRim.rgb * rim;
+    vec3 E = normalize(vEts);
+    float lg = log(max(hl(E, n), 1e-8)) * ch(16);
+    col += exp(lg * ch(9)) * vec3(ch(6), ch(7), ch(8)) * vColor.r;
+    if (uShader == 6) col *= 1.0 + uChara.x * vec3(-0.196078, -0.0980392, -0.0745098);
+    col += exp(lg * ch(19)) * uChara.x * ch(18);
+    float t = lpow(hl(L, n), ch(16));
+    col = Shade(col, t, vec3(ch(1), ch(2), ch(3)), ch(0), ch(20));
+    oColor = vec4(col, uBlend != 0 ? c.a : 1.0);
+    return;
+  }
+  if (uShader == 8) {           // PBS CSBB / CSTB: breakable and see-through when wet
+    float brk = texture(uT6, vBreakUV).r;
+    if (brk - vHeight < 0.0) discard;
+    vec4 c = mix(texture(uT0, vUV), texture(uT2, vUV), uChara.x);
+    vec4 sk = texture(uT3, vUV1), uw = texture(uT4, vUV1);
+    vec3 under = sk.rgb * (1.0 - uw.a) + uw.rgb * uw.a;
+    vec3 col = under * (1.0 - c.a) + c.rgb * c.a + uRim.rgb * rim;
+    vec3 E = normalize(vEts);
+    float lg = log(max(hl(E, n), 1e-8)) * ch(16);
+    float sheen = exp(lg * ch(21)) * ch(22) * vColor.r;
+    col = col * (1.0 - sheen) + sheen * vec3(ch(18), ch(19), ch(20));
+    col += exp(lg * ch(17)) * vec3(ch(14), ch(15), ch(16)) * vColor.r;
+    col += exp(lg * ch(24)) * uChara.x * ch(23);
+    float t = lpow(hl(L, n), ch(16));
+    col = Shade(col, t, vec3(ch(1), ch(2), ch(3)), ch(0), ch(25));
+    vec3 h2 = texture(uT5, vec2(vHeightUV.x, clamp(2.0 - vHeightUV.y, 1.0 / 128.0, 1.0 - 1.0 / 128.0))).rgb;
+    col += max((brk - h2) * 4.0, 0.0) * vec3(ch(26), ch(27), ch(28));
     oColor = vec4(col, uBlend != 0 ? c.a : 1.0);
     return;
   }
@@ -2394,6 +2830,8 @@ void main() {
   };
   var black = null;
   var identityBones = null;
+  /** the Turn slider: the model drawn rotated about the vertical axis (lights, grid and camera stay) */
+  var TURN = new THREE.Matrix4(), TURN_ANGLE = 0;
   var texCache = /* @__PURE__ */ new WeakMap();
   function initShared() {
     if (black) return;
@@ -2426,6 +2864,8 @@ void main() {
     }
     return g;
   }
+  /** the game whose shaders are used: "pbs" switches CST0 / CST1 / CSTB / CSBB to the Peach Beach Splash versions */
+  var GAME = "estival";
   function materialInfo(model, textures, mi) {
     const mat = model.materials[mi];
     const raw = mat.fourcc;
@@ -2436,6 +2876,9 @@ void main() {
     const face = model.name.includes("face");
     if (cc === "SKC0" || cc === "SKF0") kind = face ? 3 : 2;
     else if (cc === "HRH0" || cc === "HRL0") kind = 4;
+    else if (GAME === "pbs" && (cc === "CSBB" || cc === "CSTB")) kind = 8;
+    else if (GAME === "pbs" && cc === "CST0") kind = 6;
+    else if (GAME === "pbs" && cc === "CST1") kind = 7;
     else if (cc === "CSBB" || cc === "CSWB") kind = 5;
     else if (cc.startsWith("CS") || cc === "EN00") kind = 1;
     if (!model.uv0 || !model.normal || !model.tangent) kind = 0;
@@ -2445,6 +2888,7 @@ void main() {
       const i = s && model.uv0 ? model.findTexture(s.hash) : -1;
       tex.push(i >= 0 ? textures[i] : null);
     }
+    if (kind >= 6 && kind <= 8 && !tex[2]) tex[2] = tex[0];          // no WetTexture2: the dry colour stays
     const swim = cc.startsWith("CSW");
     if (cc === "CSWB") {
       tex[5] = tex[3];
@@ -2487,6 +2931,7 @@ void main() {
     g.setAttribute("aBinormal", new THREE.BufferAttribute(take(model.binormal, 3, [0, 1, 0]), 3));
     g.setAttribute("aUV", new THREE.BufferAttribute(take(model.uv0, 2, [0, 0]), 2));
     g.setAttribute("aUV1", new THREE.BufferAttribute(take(model.uv1, 2, [0, 0]), 2));
+    g.setAttribute("aUV2", new THREE.BufferAttribute(take(model.uv2, 2, [0, 0]), 2));
     g.setAttribute("aColor", new THREE.BufferAttribute(take(model.color, 4, [1, 1, 1, 1]), 4));
     g.setAttribute("aWeights", new THREE.BufferAttribute(take(model.weights, 4, [1, 0, 0, 0]), 4));
     const idx = new Float32Array(n * 4);
@@ -2562,19 +3007,23 @@ void main() {
           uT0: { value: gpuTexture(info.outline) },
           uT5: { value: gpuTexture(info.tex[5]) },
           uT6: { value: gpuTexture(info.tex[6]) },
-          uBreak: { value: info.kind === 5 ? 1 : 0 },
+          uBreak: { value: info.kind === 5 || info.kind === 8 ? 1 : 0 },
           uOutline: shared.uOutline
         });
         return new THREE.RawShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: OVS, fragmentShader: OFS, uniforms: u, side: THREE.BackSide });
       }
       Object.assign(u, {
         uShader: { value: info.kind },
+        uSkinUV: { value: info.kind === 8 ? (this.model.uv2 ? 1 : 0) : this.model.uv1 ? 1 : 0 },
+        uBreakUV: { value: this.model.uv2 ? 2 : this.model.uv1 ? 1 : 0 },
         uSwim: { value: info.swim ? 1 : 0 },
         uBlend: { value: info.blend ? 1 : 0 },
         uTextured: { value: info.tex[0] ? 1 : 0 },
         uT0: { value: gpuTexture(info.tex[0]) },
         uT1: { value: gpuTexture(info.tex[1]) },
         uT2: { value: gpuTexture(info.tex[2]) },
+        uT3: { value: gpuTexture(info.tex[3]) },
+        uT4: { value: gpuTexture(info.tex[4]) },
         uT5: { value: gpuTexture(info.tex[5]) },
         uT6: { value: gpuTexture(info.tex[6]) },
         uLightDir: shared.uLightDir,
@@ -2611,6 +3060,7 @@ void main() {
         if (p.placement) M = M ? mulRow(M, p.placement) : p.placement;
         if (M) this.meshUniforms[mi].value.fromArray(M);
         else this.meshUniforms[mi].value.identity();
+        if (TURN_ANGLE) this.meshUniforms[mi].value.premultiply(TURN);
         return visible;
       });
       for (const d of this.draws) for (const o of d.objs) o.visible = vis[d.mesh];
@@ -2637,6 +3087,8 @@ void main() {
   // src/main.js
   var $ = (id) => document.getElementById(id);
   var MOTION_FILES = [["Adv", "Motion/Adv/Adv_Motion.cat"], ["Dressing room", "Motion/Room/Dress_Motion.cat"]];
+  /** Peach Beach Splash: no Adv_Motion.cat; its room and common player motions instead */
+  var MOTION_FILES_PBS = [["Dressing room", "Motion/Room/Dress_Motion.cat"], ["Play room", "Motion/Room/PlayRoom_Motion.cat"], ["Battle (common)", "Motion/Player/plcmn_act.cat"]];
   var BLEND_FRAMES = 10;
   var state = {
     gd: null,
@@ -2841,12 +3293,18 @@ void main() {
     el.textContent = s;
     el.classList.toggle("err", err);
   }
-  for (let i = 0; i < 35; i++) {
-    const o = document.createElement("option");
-    o.value = i;
-    o.textContent = "pl" + String(i).padStart(2, "0");
-    $("chara").appendChild(o);
+  function fillCharacters(n, names = []) {
+    const sel = $("chara"), keep = sel.value;
+    sel.innerHTML = "";
+    for (let i = 0; i < n; i++) {
+      const o = document.createElement("option");
+      o.value = i;
+      o.textContent = names[i] || "pl" + String(i).padStart(2, "0");
+      sel.appendChild(o);
+    }
+    if (+keep < n) sel.value = keep;
   }
+  fillCharacters(35);
   async function openFolder() {
     if (window.showDirectoryPicker) {
       try {
@@ -2866,15 +3324,16 @@ void main() {
   });
   async function useGameData(gd) {
     if (!gd.ok) {
-      status("That folder has no Fnames/E/filename.bin - pick the GameData folder (or the game folder).", true);
+      status("That folder has no Fnames/E/filename.bin or Fnames/filenameEn.bin - pick the GameData folder (or the game folder).", true);
       return;
     }
     state.gd = gd;
     state.lib = new Library(gd, log);
     $("folder").textContent = gd.label;
+    const outfit0 = await readOutfit(state.lib, 0);
     status("reading motions\u2026");
     state.motions = [];
-    for (const [label, path] of MOTION_FILES) {
+    for (const [label, path] of outfit0.game === "pbs" ? MOTION_FILES_PBS : MOTION_FILES) {
       const buf = await state.lib.file(path);
       if (!buf) {
         log("missing " + path);
@@ -2890,8 +3349,16 @@ void main() {
       }
       state.lib.buffers.delete(path);
     }
+    if (outfit0.layout) log("cosinfo: " + outfit0.layout);
+    const charaNames = [];
+    for (let i = 0; i < outfit0.nChara; i++) charaNames.push(await state.lib.charaName(i));
+    fillCharacters(outfit0.nChara, charaNames);
+    state.game = outfit0.game || "estival";
+    GAME = state.game;
+    $("uniform").textContent = state.game === "pbs" ? "Outfit A" : "Uniform";
+    $("ninja").textContent = state.game === "pbs" ? "Outfit B" : "Ninja";
     state.costumeNames = [];
-    for (let id = 0; id < 173; id++) state.costumeNames.push((await state.lib.assetName(973 + id)).replace(/^Model\/Costume\//, "").replace(/_00_H\.cat$/i, ""));
+    for (let id = 0; id < outfit0.costumeCount; id++) state.costumeNames.push((await state.lib.costumePath(id)).replace(/^Model\/Costume\//i, "").replace(/_00(_H)?\.cat$/i, ""));
     document.body.classList.add("ready");
     await loadCharacter(+$("chara").value);
   }
@@ -2909,6 +3376,17 @@ void main() {
   });
   $("weapons").addEventListener("change", () => {
     state.weapons = $("weapons").checked;
+  });
+  $("wet").addEventListener("input", () => {
+    const w = +$("wet").value;
+    shared.uChara.value.x = w;
+    $("wetv").textContent = Math.round(w * 100) + "%";
+  });
+  $("turn").addEventListener("input", () => {
+    const a = +$("turn").value;
+    TURN_ANGLE = a;
+    TURN.makeRotationY(a * Math.PI / 180);
+    $("turnv").textContent = a + "\u00b0";
   });
   $("speed").addEventListener("input", () => {
     state.speed = +$("speed").value;
@@ -3016,7 +3494,7 @@ void main() {
   }
   async function loadActMotions(index) {
     if (state.actMotions.has(index)) return state.actMotions.get(index);
-    const map = /* @__PURE__ */ new Map(), path = `Motion/Player/pl${String(index).padStart(2, "0")}_act.cat`;
+    const map = /* @__PURE__ */ new Map(), path = `Motion/Player/${await state.lib.charaName(index)}_act.cat`;
     const buf = await state.lib.file(path);
     if (buf) {
       try {
@@ -3044,18 +3522,28 @@ void main() {
     const own = document.createElement("optgroup");
     own.label = ch.name + "'s costumes";
     sel.appendChild(own);
-    [[0, "Everyday"], [1, "Shinobi"]].forEach(([c, what]) => {
+    (state.game === "pbs" ? [[0, "Outfit A"], [1, "Outfit B"]] : [[0, "Everyday"], [1, "Shinobi"]]).forEach(([c, what]) => {
       if (!ch.hasCostume(c)) return;
       const op = document.createElement("option");
       op.value = o.costume[c];
       op.textContent = `${what}: ${costumeLabel(o.costume[c]).trim()}`;
       own.appendChild(op);
     });
-    for (const [label, a, b] of [["Uniform (0\u201328)", 0, 29], ["Ninja (29\u201373)", 29, 74], ["FreeCos (74\u2013172)", 74, 173]]) {
+    const groups = [];
+    state.costumeNames.forEach((n, id) => {
+      const folder = n.includes("/") ? n.split("/")[0] : "Costumes";
+      let g = groups[groups.length - 1];
+      if (!g || g.folder !== folder) {
+        g = { folder, a: id, b: id };
+        groups.push(g);
+      }
+      g.b = id;
+    });
+    for (const gr of groups) {
       const g = document.createElement("optgroup");
-      g.label = label;
+      g.label = `${gr.folder} (${gr.a}\u2013${gr.b})`;
       sel.appendChild(g);
-      for (let id = a; id < b; id++) {
+      for (let id = gr.a; id <= gr.b; id++) {
         const op = document.createElement("option");
         op.value = id;
         op.textContent = costumeLabel(id);
